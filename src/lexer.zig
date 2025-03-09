@@ -209,6 +209,8 @@ pub const Lexer = struct {
     }
 };
 
+const ConsumeTestCase = struct { input: []const u8, expected: []const u8 };
+
 //FIXME: doesn't cover end of file
 test "Test find_end_of_line" {
     const input = "text\ntext\n";
@@ -230,16 +232,21 @@ test "Test consume_while string literals" {
         }
     };
 
-    const input = "\"some_text\"stuff";
+    const tests = [_]ConsumeTestCase{
+        .{ .input = "\"some_text\"stuff", .expected = "some_text" },
+        .{ .input = "\"some_text\"", .expected = "some_text" },
+    };
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
-    var lex = Lexer.init(input, alloc);
-    defer lex.deinit();
 
-    // skip "
-    lex.advance();
-    const lit_and_span = lex.consume_while(is_quote_or_end.call);
+    for (tests) |test_case| {
+        const alloc = gpa.allocator();
+        var lex = Lexer.init(test_case.input, alloc);
+        defer lex.deinit();
 
-    try std.testing.expectEqualStrings("some_text", lit_and_span.literal);
+        // skip "
+        lex.advance();
+        const lit_and_span = lex.consume_while(is_quote_or_end.call);
+        try std.testing.expectEqualStrings(test_case.expected, lit_and_span.literal);
+    }
 }
