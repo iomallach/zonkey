@@ -23,6 +23,10 @@ pub const Lexer = struct {
         };
     }
 
+    pub fn deinit(self: *Lexer) void {
+        self.errors_list.deinit();
+    }
+
     pub fn errors(self: *Lexer) std.ArrayList[[]const u8] {
         return self.errors_list;
     }
@@ -211,7 +215,7 @@ test "Test find_end_of_line" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
     var lex = Lexer.init(input, alloc);
-    defer lex.errors_list.deinit();
+    defer lex.deinit();
 
     const eol = lex.find_end_of_line();
 
@@ -231,7 +235,7 @@ test "Test consume_while string literals" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
     var lex = Lexer.init(input, alloc);
-    defer lex.errors_list.deinit();
+    defer lex.deinit();
 
     // skip "
     lex.advance();

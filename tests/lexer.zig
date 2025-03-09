@@ -13,7 +13,7 @@ test "Test symbols" {
 
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
-    defer lex.errors_list.deinit();
+    defer lex.deinit();
 
     const tests = [_]TestCase{
         .{ .expected_type = zonkey.token.TokenType.LBRACKET, .expected_literal = "[" },
@@ -49,7 +49,7 @@ test "Test end of file" {
 
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
-    defer lex.errors_list.deinit();
+    defer lex.deinit();
 
     const token = lex.next_token();
     try std.testing.expectEqual(zonkey.token.TokenType.EOF, token.token_type);
