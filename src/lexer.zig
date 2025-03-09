@@ -129,6 +129,33 @@ pub const Lexer = struct {
                 span = self.token_span(self.position, self.position);
                 token = tok.Token{ .token_type = tok.TokenType.RBRACE, .literal = self.slice_literal(1), .span = span };
             },
+            '!' => {
+                if (self.peek() == '=') {
+                    span = self.token_span(self.position, self.position + 1);
+                    token = tok.Token{ .token_type = tok.TokenType.BANG_EQUAL, .literal = self.slice_literal(2), .span = span };
+                    self.advance();
+                } else {
+                    span = self.token_span(self.position, self.position);
+                    token = tok.Token{ .token_type = tok.TokenType.BANG, .literal = self.slice_literal(1), .span = span };
+                }
+            },
+            '/' => {
+                span = self.token_span(self.position, self.position);
+                token = tok.Token{ .token_type = tok.TokenType.SLASH, .literal = self.slice_literal(1), .span = span };
+            },
+            '*' => {
+                span = self.token_span(self.position, self.position);
+                token = tok.Token{ .token_type = tok.TokenType.ASTERISK, .literal = self.slice_literal(1), .span = span };
+            },
+            //FIXME: no support for >=, <=
+            '<' => {
+                span = self.token_span(self.position, self.position);
+                token = tok.Token{ .token_type = tok.TokenType.LESS, .literal = self.slice_literal(1), .span = span };
+            },
+            '>' => {
+                span = self.token_span(self.position, self.position);
+                token = tok.Token{ .token_type = tok.TokenType.GREATER, .literal = self.slice_literal(1), .span = span };
+            },
             0 => {
                 span = self.token_span(self.chars.len, self.chars.len);
                 token = tok.Token{ .token_type = tok.TokenType.EOF, .literal = "", .span = span };
