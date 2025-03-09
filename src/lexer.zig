@@ -72,6 +72,10 @@ pub const Lexer = struct {
         };
     }
 
+    fn slice_literal(self: *Lexer, to: usize) []const u8 {
+        return self.chars[self.position .. self.position + to];
+    }
+
     pub fn next_token(self: *Lexer) tok.Token {
         var token: tok.Token = undefined;
         var span: tok.TokenSpan = undefined;
@@ -81,11 +85,21 @@ pub const Lexer = struct {
         switch (self.char()) {
             '[' => {
                 span = self.token_span(self.position, self.position);
-                token = tok.Token{ .token_type = tok.TokenType.LBRACKET, .literal = self.chars[self.position .. self.position + 1], .span = span };
+                token = tok.Token{ .token_type = tok.TokenType.LBRACKET, .literal = self.slice_literal(1), .span = span };
             },
             ']' => {
                 span = self.token_span(self.position, self.position);
-                token = tok.Token{ .token_type = tok.TokenType.RBRACKET, .literal = self.chars[self.position .. self.position + 1], .span = span };
+                token = tok.Token{ .token_type = tok.TokenType.RBRACKET, .literal = self.slice_literal(1), .span = span };
+            },
+            '=' => {
+                if (self.peek() == '=') {
+                    span = self.token_span(self.position, self.position + 1);
+                    token = tok.Token{ .token_type = tok.TokenType.EQUAL_EQUAL, .literal = self.slice_literal(2), .span = span };
+                    self.advance();
+                } else {
+                    span = self.token_span(self.position, self.position + 1);
+                    token = tok.Token{ .token_type = tok.TokenType.EQUAL, .literal = self.slice_literal(1), .span = span };
+                }
             },
             0 => {
                 span = self.token_span(0, 0);
@@ -131,3 +145,16 @@ pub const Lexer = struct {
         return .{ .literal = self.chars[start..self.position], .span = span };
     }
 };
+
+//FIXME: doesn't cover end of file
+test "Test find_end_of_line" {
+    const input = "text\ntext\n";
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const alloc = gpa.allocator();
+    var lex = Lexer.init(input, alloc);
+    defer lex.errors_list.deinit();
+
+    const eol = lex.find_end_of_line();
+
+    try std.testing.expectEqual(5, eol);
+}

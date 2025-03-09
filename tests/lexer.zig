@@ -9,7 +9,7 @@ const TestCase = struct {
 };
 
 test "Test symbols" {
-    const input = "[]";
+    const input = "[]=]==";
 
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
@@ -18,11 +18,25 @@ test "Test symbols" {
     const tests = [_]TestCase{
         .{ .expected_type = zonkey.token.TokenType.LBRACKET, .expected_literal = "[" },
         .{ .expected_type = zonkey.token.TokenType.RBRACKET, .expected_literal = "]" },
+        .{ .expected_type = zonkey.token.TokenType.EQUAL, .expected_literal = "=" },
+        .{ .expected_type = zonkey.token.TokenType.RBRACKET, .expected_literal = "]" },
+        .{ .expected_type = zonkey.token.TokenType.EQUAL_EQUAL, .expected_literal = "==" },
     };
 
     for (tests) |test_case| {
         const token = lex.next_token();
-        try std.testing.expect(test_case.expected_type, token.token_type);
+        try std.testing.expectEqual(test_case.expected_type, token.token_type);
         try std.testing.expectEqualStrings(token.literal, test_case.expected_literal);
     }
+}
+
+test "Test end of file" {
+    const input = "";
+
+    const alloc = gpa.allocator();
+    var lex = zonkey.lexer.Lexer.init(input, alloc);
+    defer lex.errors_list.deinit();
+
+    const token = lex.next_token();
+    try std.testing.expectEqual(zonkey.token.TokenType.EOF, token.token_type);
 }
