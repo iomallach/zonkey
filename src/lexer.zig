@@ -235,6 +235,9 @@ test "Test consume_while string literals" {
     const tests = [_]ConsumeTestCase{
         .{ .input = "\"some_text\"stuff", .expected = "some_text" },
         .{ .input = "\"some_text\"", .expected = "some_text" },
+        //FIXME: this test passes, but the literal is broken; not handled in next_token
+        .{ .input = "\"some_text", .expected = "some_text" },
+        .{ .input = "\"\"", .expected = "" },
     };
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
