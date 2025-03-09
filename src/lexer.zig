@@ -196,7 +196,7 @@ pub const Lexer = struct {
         }
 
         const start = self.position;
-        for (f(self.char())) |_| {
+        while (f(self.char())) {
             self.advance();
         }
         const span = self.token_span(start, self.position);
@@ -216,4 +216,26 @@ test "Test find_end_of_line" {
     const eol = lex.find_end_of_line();
 
     try std.testing.expectEqual(5, eol);
+}
+
+//FIXME: add more cases, edge cases
+test "Test consume_while string literals" {
+    const is_quote_or_end = struct {
+        pub fn call(c: u8) bool {
+            return (c != '"') and (c != 0);
+        }
+    };
+
+    const input = "\"some_text\"stuff";
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const alloc = gpa.allocator();
+    var lex = Lexer.init(input, alloc);
+    defer lex.errors_list.deinit();
+
+    // skip "
+    lex.advance();
+    const lit_and_span = lex.consume_while(is_quote_or_end.call);
+
+    try std.testing.expectEqualStrings("some_text", lit_and_span.literal);
 }
