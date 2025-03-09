@@ -38,7 +38,7 @@ test "Test symbols" {
     };
 
     for (tests) |test_case| {
-        const token = lex.next_token();
+        const token = try lex.next_token();
         try std.testing.expectEqual(test_case.expected_type, token.token_type);
         try std.testing.expectEqualStrings(token.literal, test_case.expected_literal);
     }
@@ -51,6 +51,29 @@ test "Test end of file" {
     var lex = zonkey.lexer.Lexer.init(input, alloc);
     defer lex.deinit();
 
-    const token = lex.next_token();
+    const token = try lex.next_token();
     try std.testing.expectEqual(zonkey.token.TokenType.EOF, token.token_type);
+}
+
+test "Test string literals" {
+    const input = "\"some_text\"";
+    const alloc = gpa.allocator();
+    var lex = zonkey.lexer.Lexer.init(input, alloc);
+    defer lex.deinit();
+
+    const token = try lex.next_token();
+
+    try std.testing.expectEqualStrings("some_text", token.literal);
+    try std.testing.expectEqual(zonkey.token.TokenType.STRING, token.token_type);
+}
+
+test "Test string literals error" {
+    const input = "\"some_text";
+    const alloc = gpa.allocator();
+    var lex = zonkey.lexer.Lexer.init(input, alloc);
+    defer lex.deinit();
+
+    _ = try lex.next_token();
+
+    try std.testing.expectEqual(1, lex.errors_list.items.len);
 }

@@ -13,6 +13,20 @@ pub const Lexer = struct {
 
     errors_list: std.ArrayList([]const u8),
 
+    const consume_while_suit = struct {
+        pub fn not_quote_and_end(c: u8) bool {
+            return (c != '"') and (c != 0);
+        }
+
+        pub fn is_letter(c: u8) bool {
+            return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c == '_');
+        }
+
+        pub fn is_numeric(c: u8) bool {
+            return (c >= '0' and c <= '9');
+        }
+    };
+
     pub fn init(chars: []const u8, alloc: std.mem.Allocator) Lexer {
         return .{
             .chars = chars,
@@ -80,7 +94,7 @@ pub const Lexer = struct {
         return self.chars[self.position .. self.position + to];
     }
 
-    pub fn next_token(self: *Lexer) tok.Token {
+    pub fn next_token(self: *Lexer) !tok.Token {
         var token: tok.Token = undefined;
         var span: tok.TokenSpan = undefined;
 
@@ -164,12 +178,31 @@ pub const Lexer = struct {
                 span = self.token_span(self.position, self.position);
                 token = tok.Token{ .token_type = tok.TokenType.MINUS, .literal = self.slice_literal(1), .span = span };
             },
+            '"' => {
+                // skip the '"' in the literal
+                self.advance();
+                const literal_and_span = self.consume_while(consume_while_suit.not_quote_and_end);
+                token = tok.Token{ .token_type = tok.TokenType.STRING, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                if (self.char() != '"') {
+                    //FIXME: error message is broken, see go implementation
+                    try self.errors_list.append("FIXME: need an actual error");
+                }
+                // not skipping " at the end due to the advance after switch
+            },
             0 => {
                 span = self.token_span(self.chars.len, self.chars.len);
                 token = tok.Token{ .token_type = tok.TokenType.EOF, .literal = "", .span = span };
             },
             else => {
-                @panic("Not implemented");
+                if (consume_while_suit.is_letter(self.char())) {
+                    const literal_and_span = self.consume_while(consume_while_suit.is_letter);
+                    const token_type = tok.map_identifier(literal_and_span.literal);
+                    return tok.Token{ .token_type = token_type, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                } else if (consume_while_suit.is_numeric(self.char())) {
+                    const literal_and_span = self.consume_while(consume_while_suit.is_numeric);
+                    return tok.Token{ .token_type = tok.TokenType.INT, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                }
+                //FIXME: else ILLEGAL
             },
         }
 
@@ -209,8 +242,6 @@ pub const Lexer = struct {
     }
 };
 
-const ConsumeTestCase = struct { input: []const u8, expected: []const u8 };
-
 //FIXME: doesn't cover end of file
 test "Test find_end_of_line" {
     const input = "text\ntext\n";
@@ -226,6 +257,8 @@ test "Test find_end_of_line" {
 
 //FIXME: add more cases, edge cases
 test "Test consume_while string literals" {
+    const ConsumeTestCase = struct { input: []const u8, expected: []const u8 };
+
     const is_quote_or_end = struct {
         pub fn call(c: u8) bool {
             return (c != '"') and (c != 0);

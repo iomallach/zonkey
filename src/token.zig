@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const TokenType = enum {
     ILLEGAL,
     EOF,
@@ -55,3 +57,17 @@ pub const Token = struct {
     literal: []const u8,
     span: TokenSpan,
 };
+
+const keywords = std.StaticStringMap(TokenType).initComptime(.{
+    .{ "fn", TokenType.FUNCTION },
+    .{ "let", TokenType.LET },
+    .{ "if", TokenType.IF },
+    .{ "else", TokenType.ELSE },
+    .{ "return", TokenType.RETURN },
+    .{ "true", TokenType.TRUE },
+    .{ "false", TokenType.FALSE },
+});
+
+pub fn map_identifier(keyword: []const u8) TokenType {
+    return keywords.get(keyword) orelse TokenType.IDENT;
+}
