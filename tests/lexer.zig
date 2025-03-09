@@ -9,7 +9,7 @@ const TestCase = struct {
 };
 
 test "Test symbols" {
-    const input = "[]=]==";
+    const input = "[]=]==;()";
 
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
@@ -21,6 +21,9 @@ test "Test symbols" {
         .{ .expected_type = zonkey.token.TokenType.EQUAL, .expected_literal = "=" },
         .{ .expected_type = zonkey.token.TokenType.RBRACKET, .expected_literal = "]" },
         .{ .expected_type = zonkey.token.TokenType.EQUAL_EQUAL, .expected_literal = "==" },
+        .{ .expected_type = zonkey.token.TokenType.SEMICOLON, .expected_literal = ";" },
+        .{ .expected_type = zonkey.token.TokenType.LPAREN, .expected_literal = "(" },
+        .{ .expected_type = zonkey.token.TokenType.RPAREN, .expected_literal = ")" },
     };
 
     for (tests) |test_case| {
