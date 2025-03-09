@@ -9,7 +9,7 @@ const TestCase = struct {
 };
 
 test "Test symbols" {
-    const input = "[]=]==;(),+{}!=!/*<>";
+    const input = "[]=]==;(),+{}!=!/*<>-";
 
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
@@ -34,6 +34,7 @@ test "Test symbols" {
         .{ .expected_type = zonkey.token.TokenType.ASTERISK, .expected_literal = "*" },
         .{ .expected_type = zonkey.token.TokenType.LESS, .expected_literal = "<" },
         .{ .expected_type = zonkey.token.TokenType.GREATER, .expected_literal = ">" },
+        .{ .expected_type = zonkey.token.TokenType.MINUS, .expected_literal = "-" },
     };
 
     for (tests) |test_case| {
