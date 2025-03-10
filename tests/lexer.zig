@@ -1,5 +1,6 @@
 const std = @import("std");
 const zonkey = @import("zonkey");
+const TokenType = zonkey.token.TokenType;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
@@ -16,25 +17,25 @@ test "Test symbols" {
     defer lex.deinit();
 
     const tests = [_]TestCase{
-        .{ .expected_type = zonkey.token.TokenType.LBRACKET, .expected_literal = "[" },
-        .{ .expected_type = zonkey.token.TokenType.RBRACKET, .expected_literal = "]" },
-        .{ .expected_type = zonkey.token.TokenType.EQUAL, .expected_literal = "=" },
-        .{ .expected_type = zonkey.token.TokenType.RBRACKET, .expected_literal = "]" },
-        .{ .expected_type = zonkey.token.TokenType.EQUAL_EQUAL, .expected_literal = "==" },
-        .{ .expected_type = zonkey.token.TokenType.SEMICOLON, .expected_literal = ";" },
-        .{ .expected_type = zonkey.token.TokenType.LPAREN, .expected_literal = "(" },
-        .{ .expected_type = zonkey.token.TokenType.RPAREN, .expected_literal = ")" },
-        .{ .expected_type = zonkey.token.TokenType.COMMA, .expected_literal = "," },
-        .{ .expected_type = zonkey.token.TokenType.PLUS, .expected_literal = "+" },
-        .{ .expected_type = zonkey.token.TokenType.LBRACE, .expected_literal = "{" },
-        .{ .expected_type = zonkey.token.TokenType.RBRACE, .expected_literal = "}" },
-        .{ .expected_type = zonkey.token.TokenType.BANG_EQUAL, .expected_literal = "!=" },
-        .{ .expected_type = zonkey.token.TokenType.BANG, .expected_literal = "!" },
-        .{ .expected_type = zonkey.token.TokenType.SLASH, .expected_literal = "/" },
-        .{ .expected_type = zonkey.token.TokenType.ASTERISK, .expected_literal = "*" },
-        .{ .expected_type = zonkey.token.TokenType.LESS, .expected_literal = "<" },
-        .{ .expected_type = zonkey.token.TokenType.GREATER, .expected_literal = ">" },
-        .{ .expected_type = zonkey.token.TokenType.MINUS, .expected_literal = "-" },
+        .{ .expected_type = TokenType.LBRACKET, .expected_literal = "[" },
+        .{ .expected_type = TokenType.RBRACKET, .expected_literal = "]" },
+        .{ .expected_type = TokenType.EQUAL, .expected_literal = "=" },
+        .{ .expected_type = TokenType.RBRACKET, .expected_literal = "]" },
+        .{ .expected_type = TokenType.EQUAL_EQUAL, .expected_literal = "==" },
+        .{ .expected_type = TokenType.SEMICOLON, .expected_literal = ";" },
+        .{ .expected_type = TokenType.LPAREN, .expected_literal = "(" },
+        .{ .expected_type = TokenType.RPAREN, .expected_literal = ")" },
+        .{ .expected_type = TokenType.COMMA, .expected_literal = "," },
+        .{ .expected_type = TokenType.PLUS, .expected_literal = "+" },
+        .{ .expected_type = TokenType.LBRACE, .expected_literal = "{" },
+        .{ .expected_type = TokenType.RBRACE, .expected_literal = "}" },
+        .{ .expected_type = TokenType.BANG_EQUAL, .expected_literal = "!=" },
+        .{ .expected_type = TokenType.BANG, .expected_literal = "!" },
+        .{ .expected_type = TokenType.SLASH, .expected_literal = "/" },
+        .{ .expected_type = TokenType.ASTERISK, .expected_literal = "*" },
+        .{ .expected_type = TokenType.LESS, .expected_literal = "<" },
+        .{ .expected_type = TokenType.GREATER, .expected_literal = ">" },
+        .{ .expected_type = TokenType.MINUS, .expected_literal = "-" },
     };
 
     for (tests) |test_case| {
@@ -52,7 +53,7 @@ test "Test end of file" {
     defer lex.deinit();
 
     const token = try lex.next_token();
-    try std.testing.expectEqual(zonkey.token.TokenType.EOF, token.token_type);
+    try std.testing.expectEqual(TokenType.EOF, token.token_type);
 }
 
 test "Test string literals" {
@@ -64,7 +65,7 @@ test "Test string literals" {
     const token = try lex.next_token();
 
     try std.testing.expectEqualStrings("some_text", token.literal);
-    try std.testing.expectEqual(zonkey.token.TokenType.STRING, token.token_type);
+    try std.testing.expectEqual(TokenType.STRING, token.token_type);
 }
 
 test "Test string literals error" {
@@ -76,4 +77,65 @@ test "Test string literals error" {
     _ = try lex.next_token();
 
     try std.testing.expectEqual(1, lex.errors_list.items.len);
+}
+
+test "Test keywords" {
+    const input = "fn let if else return true false";
+    const tests = [_]TestCase{
+        .{ .expected_type = TokenType.FUNCTION, .expected_literal = "fn" },
+        .{ .expected_type = TokenType.LET, .expected_literal = "let" },
+        .{ .expected_type = TokenType.IF, .expected_literal = "if" },
+        .{ .expected_type = TokenType.ELSE, .expected_literal = "else" },
+        .{ .expected_type = TokenType.RETURN, .expected_literal = "return" },
+        .{ .expected_type = TokenType.TRUE, .expected_literal = "true" },
+        .{ .expected_type = TokenType.FALSE, .expected_literal = "false" },
+    };
+    const alloc = gpa.allocator();
+    var lex = zonkey.lexer.Lexer.init(input, alloc);
+    defer lex.deinit();
+
+    for (tests) |test_case| {
+        const token = try lex.next_token();
+
+        try std.testing.expectEqual(test_case.expected_type, token.token_type);
+        try std.testing.expectEqualStrings(test_case.expected_literal, token.literal);
+    }
+}
+
+test "Test random identifiers" {
+    const input = "testvar aplusb";
+    const tests = [_]TestCase{
+        .{ .expected_type = TokenType.IDENT, .expected_literal = "testvar" },
+        .{ .expected_type = TokenType.IDENT, .expected_literal = "aplusb" },
+    };
+
+    const alloc = gpa.allocator();
+    var lex = zonkey.lexer.Lexer.init(input, alloc);
+    defer lex.deinit();
+
+    for (tests) |test_case| {
+        const token = try lex.next_token();
+
+        try std.testing.expectEqual(test_case.expected_type, token.token_type);
+        try std.testing.expectEqualStrings(test_case.expected_literal, token.literal);
+    }
+}
+
+test "Test numeric literals" {
+    const input = "12345 34179";
+    const tests = [_]TestCase{
+        .{ .expected_type = TokenType.INT, .expected_literal = "12345" },
+        .{ .expected_type = TokenType.INT, .expected_literal = "34179" },
+    };
+
+    const alloc = gpa.allocator();
+    var lex = zonkey.lexer.Lexer.init(input, alloc);
+    defer lex.deinit();
+
+    for (tests) |test_case| {
+        const token = try lex.next_token();
+
+        try std.testing.expectEqual(test_case.expected_type, token.token_type);
+        try std.testing.expectEqualStrings(test_case.expected_literal, token.literal);
+    }
 }

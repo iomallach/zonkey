@@ -25,6 +25,10 @@ pub const Lexer = struct {
         pub fn is_numeric(c: u8) bool {
             return (c >= '0' and c <= '9');
         }
+
+        pub fn is_whitespace(c: u8) bool {
+            return (c == ' ') or (c == '\t') or (c == '\n') or (c == '\r');
+        }
     };
 
     pub fn init(chars: []const u8, alloc: std.mem.Allocator) Lexer {
@@ -99,6 +103,7 @@ pub const Lexer = struct {
         var span: tok.TokenSpan = undefined;
 
         self.maybe_increment_line();
+        _ = self.consume_while(consume_while_suit.is_whitespace);
 
         switch (self.char()) {
             '[' => {
