@@ -1,6 +1,18 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
+const Ast = enum {
+    Statement,
+    Expression,
+    Program,
+};
+
+const AstNode = union(Ast) { StatementNode: *StatementNode, ExpressionNode: *ExpressionNode, ProgramNode: *Program };
+
+const Program = struct {
+    program: []*StatementNode,
+};
+
 const Statement = enum {
     LetStatement,
     ReturnStatement,
@@ -369,8 +381,23 @@ const ExpressionNode = union(Expression) {
 };
 
 const test_helpers = struct {
+    pub fn make_dummy_token_span() tok.TokenSpan {
+        return tok.TokenSpan{
+            .start = 0,
+            .end = 0,
+            .line_number = 0,
+            .source_chunk = "",
+        };
+    }
+    pub fn make_token(literal: []const u8, tt: tok.TokenType) tok.Token {
+        return tok.Token{
+            .literal = literal,
+            .token_type = tt,
+            .span = make_dummy_token_span(),
+        };
+    }
     pub fn make_string_literal(value: []const u8) StringLiteral {
-        return StringLiteral{ .token = tok.Token{ .literal = value, .token_type = tok.TokenType.STRING, .span = tok.TokenSpan{ .end = 0, .start = 0, .line_number = 0, .source_chunk = "" } }, .value = value };
+        return StringLiteral{ .token = make_token(value, tok.TokenType.STRING), .value = value };
     }
 };
 
@@ -394,7 +421,7 @@ test "Test array literal format" {
     var elem1 = ExpressionNode{ .StringLiteral = test_helpers.make_string_literal("test1") };
     var elem2 = ExpressionNode{ .StringLiteral = test_helpers.make_string_literal("test2") };
     var elems = [_]*ExpressionNode{ &elem1, &elem2 };
-    const str_literal = ArrayLiteral{ .elements = &elems, .token = tok.Token{ .literal = "", .token_type = tok.TokenType.LBRACKET, .span = tok.TokenSpan{ .end = 0, .line_number = 0, .start = 0, .source_chunk = "" } } };
+    const str_literal = ArrayLiteral{ .elements = &elems, .token = test_helpers.make_token("", tok.TokenType.LBRACKET) };
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
