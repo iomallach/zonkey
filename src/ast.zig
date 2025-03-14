@@ -9,21 +9,70 @@ const Statement = enum {
 };
 
 const BlockStatement = struct {
-    token: tok.token,
+    token: tok.Token,
     statements: []*StatementNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("{\n");
+        for (self.statements) |s| {
+            s.format(fmt, options, writer);
+        }
+        try writer.writeAll("\n}");
+    }
 };
+
 const LetStatement = struct {
     token: tok.Token,
     name: *Identifier,
     value: *ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("{} ", self.token.literal);
+        try self.name.format(fmt, options, writer);
+        try writer.writeAll(" = ");
+        try self.value.format(fmt, options, writer);
+        try writer.writerAll(";");
+    }
 };
+
 const ReturnStatement = struct {
     token: tok.Token,
     return_value: *ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("{} ", .{self.token.literal});
+        try self.return_value.format(fmt, options, writer);
+        try writer.writerAll(";");
+    }
 };
+
 const ExpressionStatement = struct {
     token: tok.Token,
     expression: *ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try self.expression.format(fmt, options, writer);
+    }
 };
 
 const StatementNode = union(Statement) {
@@ -31,6 +80,20 @@ const StatementNode = union(Statement) {
     ReturnStatement: *ReturnStatement,
     ExpressionStatement: *ExpressionStatement,
     BlockStatement: *BlockStatement,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .LetStatement => |let_stmt| try let_stmt.format(fmt, options, writer),
+            .ReturnStatement => |ret_stmt| try ret_stmt.format(fmt, options, writer),
+            .ExpressionStatement => |expr_stmt| try expr_stmt.format(fmt, options, writer),
+            .BlockStatement => |block_stmt| try block_stmt.format(fmt, options, writer),
+        }
+    }
 };
 
 const Expression = enum {
@@ -85,51 +148,195 @@ const IntegerLiteral = struct {
 const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (fmt.len == 0) {
+            return writer.print("{s}", .{self.token.literal});
+        }
+
+        return self.format("", options, writer);
+    }
 };
 
-const StringLiteral = struct { token: tok.Token, value: []const u8 };
+const StringLiteral = struct {
+    token: tok.Token,
+    value: []const u8,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (fmt.len == 0) {
+            return writer.print("{s}", .{self.value});
+        }
+
+        return self.format("", options, writer);
+    }
+};
 
 const ArrayLiteral = struct {
     token: tok.Token,
-    elements: []*Expression,
+    elements: []*ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+
+        try writer.writeAll("[");
+
+        for (self.elements, 0..) |elem, i| {
+            try elem.format("{}", options, writer);
+
+            if (i < self.elements.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+
+        try writer.writeAll("]");
+    }
 };
 
+// FIXME: add format
 const FunctionLiteral = struct {
     token: tok.Token,
     parameters: []*Identifier,
     body: []*BlockStatement,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("{s}", .{self.token.literal});
+        try writer.writeAll("(");
+        for (self.parameters, 0..) |param, i| {
+            try param.format(fmt, options, writer);
+
+            if (i < self.parameters.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeAll(")");
+
+        for (self.body) |b| {
+            try b.format(fmt, options, writer);
+        }
+    }
 };
 
 const FunctionCall = struct {
     token: tok.Token,
-    function: *Expression,
-    arguments: []*Expression,
+    function: *ExpressionNode,
+    arguments: []*ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try self.function.format(fmt, options, writer);
+        try writer.writeAll("(");
+        for (self.arguments) |a| {
+            try a.format(fmt, options, writer);
+        }
+        try writer.writeAll(")");
+    }
 };
 
 const Prefix = struct {
     token: tok.Token,
     operator: []const u8,
-    right: *Expression,
+    right: *ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("(");
+        try writer.writeAll(self.operator);
+        try self.right.format(fmt, options, writer);
+        try writer.writeAll(")");
+    }
 };
 
 const Infix = struct {
     token: tok.Token,
     operator: []const u8,
-    left: *Expression,
-    right: *Expression,
+    left: *ExpressionNode,
+    right: *ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("(");
+        try self.left.format(fmt, options, writer);
+        try writer.writeAll(" {s} ", self.operator);
+        try self.right.format(fmt, options, writer);
+        try writer.writeAll(")");
+    }
 };
 
 const If = struct {
     token: tok.Token,
-    condition: *Expression,
+    condition: *ExpressionNode,
     consequence: []*BlockStatement,
-    alternative: []*BlockStatement,
+    alternative: ?[]*BlockStatement,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("if ");
+        try self.condition.format(fmt, options, writer);
+        try writer.writeAll(" ");
+        try self.consequence.format(fmt, options, writer);
+
+        if (self.alternative) |alt| {
+            try writer.writeAll("else ");
+            for (alt) |stmt| {
+                try stmt.format(fmt, options, writer);
+            }
+        }
+    }
 };
 
 const Index = struct {
     token: tok.Token,
-    expression: *Expression,
-    indexed_expression: *Expression,
+    expression: *ExpressionNode,
+    indexed_expression: *ExpressionNode,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll("(");
+        try self.expression.format(fmt, options, writer);
+        try writer.writeAll("[");
+        try self.expression.format(fmt, options, writer);
+        try writer.writeAll("])");
+    }
 };
 
 const ExpressionNode = union(Expression) {
@@ -144,4 +351,60 @@ const ExpressionNode = union(Expression) {
     Infix: Infix,
     If: If,
     Index: Index,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .Identifier => |ident| try ident.format(fmt, options, writer),
+            .StringLiteral => |str| try str.format(fmt, options, writer),
+            else => {
+                @panic("unimplemented");
+            },
+        }
+    }
 };
+
+const test_helpers = struct {
+    pub fn make_string_literal(value: []const u8) StringLiteral {
+        return StringLiteral{ .token = tok.Token{ .literal = value, .token_type = tok.TokenType.STRING, .span = tok.TokenSpan{ .end = 0, .start = 0, .line_number = 0, .source_chunk = "" } }, .value = value };
+    }
+};
+
+test "Test string literal format" {
+    const str_literal = test_helpers.make_string_literal("test");
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer {
+        const deinit_status = gpa.deinit();
+        std.debug.assert(deinit_status == .ok);
+    }
+
+    const lit_str = try std.fmt.allocPrint(allocator, "{}", .{str_literal});
+    defer allocator.free(lit_str);
+
+    try std.testing.expectEqualStrings("test", lit_str);
+}
+
+test "Test array literal format" {
+    var elem1 = ExpressionNode{ .StringLiteral = test_helpers.make_string_literal("test1") };
+    var elem2 = ExpressionNode{ .StringLiteral = test_helpers.make_string_literal("test2") };
+    var elems = [_]*ExpressionNode{ &elem1, &elem2 };
+    const str_literal = ArrayLiteral{ .elements = &elems, .token = tok.Token{ .literal = "", .token_type = tok.TokenType.LBRACKET, .span = tok.TokenSpan{ .end = 0, .line_number = 0, .start = 0, .source_chunk = "" } } };
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer {
+        const deinit_status = gpa.deinit();
+        std.debug.assert(deinit_status == .ok);
+    }
+
+    const lit_str = try std.fmt.allocPrint(allocator, "{}", .{str_literal});
+    defer allocator.free(lit_str);
+
+    try std.testing.expectEqualStrings("[test1, test2]", lit_str);
+}
