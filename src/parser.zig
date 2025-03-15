@@ -133,6 +133,26 @@ const Parser = struct {
         try self.errors_list.append(error_message);
     }
 
+    fn parseletError(self: *Parser) !void {
+        const token = self.currentToken();
+        const spaces = try self.alloc.alloc(u8, token.span.start);
+        @memset(spaces, ' ');
+
+        const error_message = try std.fmt.allocPrint(self.alloc,
+            \\ Unexpected token {any} encountered at line {d} column {d}
+            \\ {s}
+            \\ {s}^ here
+            \\
+        , .{
+            token.token_type,
+            token.span.line_number,
+            token.span.start,
+            token.span.source_chunk,
+            spaces,
+        });
+        try self.errors_list.append(error_message);
+    }
+
     pub fn errors(self: *Parser) *std.ArrayList([]const u8) {
         return &self.errors_list;
     }
@@ -156,7 +176,7 @@ const Parser = struct {
         return switch (self.currentToken().token_type) {
             tok.TokenType.LET => try self.parseLetStatement(),
             tok.TokenType.RETURN => unreachable,
-            else => unreachable,
+            else => self.parseExpressionStatement(),
         };
     }
 
@@ -188,18 +208,34 @@ const Parser = struct {
         return ast.StatementNode.createLetStatement(ast.Identifier{ .token = ident_token, .value = ident_token.literal }, let_token, expression);
     }
 
+    fn parseExpressionStatement(self: *Parser) !?ast.ExpressionStatement {
+        const token = self.currentToken();
+        //FIXME: this here is still optional
+        const expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+
+        if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
+            self.advance();
+        }
+
+        return ast.ExpressionStatement{
+            .token = token,
+            .expression = expression,
+        };
+    }
+
     fn parseExpression(self: *Parser, prec: Precedence) !?ast.ExpressionNode {
         const prefix_parselet = self.prefix_fns.get(self.currentToken().token_type) orelse {
-            //FIXME: append an error
-            try self.errors_list.append("Unknown prefix expression");
+            try self.parseletError();
             return null;
         };
         var left_expr = try prefix_parselet(self);
 
         while (!self.matchPeekTokenType(tok.TokenType.SEMICOLON) and @intFromEnum(prec) < @intFromEnum(self.peekPrecedence())) {
             const infix_parselet = self.infix_fns.get(self.peekToken().token_type) orelse {
-                // FIXME: append an error
-                try self.errors_list.append("Unknown infix expression");
+                // FIXME: this has to be for the peek token
+                try self.parseletError();
                 return left_expr;
             };
             self.advance();
