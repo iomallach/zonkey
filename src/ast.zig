@@ -7,20 +7,36 @@ const Ast = enum {
     Program,
 };
 
-const AstNode = union(Ast) { StatementNode: *StatementNode, ExpressionNode: *ExpressionNode, ProgramNode: *Program };
+pub const AstNode = union(Ast) { StatementNode: *StatementNode, ExpressionNode: *ExpressionNode, ProgramNode: *Program };
 
-const Program = struct {
-    program: []*StatementNode,
+pub const Program = struct {
+    program: std.ArrayList(StatementNode),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) Program {
+        return Program{
+            .program = std.ArrayList(StatementNode).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Program) void {
+        self.program.deinit();
+    }
+
+    pub fn addStatement(self: *Program, stmt: StatementNode) !void {
+        try self.program.append(stmt);
+    }
 };
 
-const Statement = enum {
+pub const Statement = enum {
     LetStatement,
     ReturnStatement,
     ExpressionStatement,
     BlockStatement,
 };
 
-const BlockStatement = struct {
+pub const BlockStatement = struct {
     token: tok.Token,
     statements: []*StatementNode,
 
@@ -38,10 +54,10 @@ const BlockStatement = struct {
     }
 };
 
-const LetStatement = struct {
+pub const LetStatement = struct {
     token: tok.Token,
-    name: *Identifier,
-    value: *ExpressionNode,
+    name: Identifier,
+    value: ExpressionNode,
 
     pub fn format(
         self: @This(),
@@ -57,7 +73,7 @@ const LetStatement = struct {
     }
 };
 
-const ReturnStatement = struct {
+pub const ReturnStatement = struct {
     token: tok.Token,
     return_value: *ExpressionNode,
 
@@ -73,7 +89,7 @@ const ReturnStatement = struct {
     }
 };
 
-const ExpressionStatement = struct {
+pub const ExpressionStatement = struct {
     token: tok.Token,
     expression: *ExpressionNode,
 
@@ -87,8 +103,8 @@ const ExpressionStatement = struct {
     }
 };
 
-const StatementNode = union(Statement) {
-    LetStatement: *LetStatement,
+pub const StatementNode = union(Statement) {
+    LetStatement: LetStatement,
     ReturnStatement: *ReturnStatement,
     ExpressionStatement: *ExpressionStatement,
     BlockStatement: *BlockStatement,
@@ -106,6 +122,14 @@ const StatementNode = union(Statement) {
             .BlockStatement => |block_stmt| try block_stmt.format(fmt, options, writer),
         }
     }
+
+    pub fn createLetStatement(identifier: Identifier, token: tok.Token, expression: ExpressionNode) StatementNode {
+        return StatementNode{ .LetStatement = LetStatement{
+            .name = identifier,
+            .token = token,
+            .value = expression,
+        } };
+    }
 };
 
 const Expression = enum {
@@ -122,7 +146,7 @@ const Expression = enum {
     Index,
 };
 
-const Identifier = struct {
+pub const Identifier = struct {
     token: tok.Token,
     value: []const u8,
 
@@ -139,7 +163,7 @@ const Identifier = struct {
     }
 };
 
-const IntegerLiteral = struct {
+pub const IntegerLiteral = struct {
     token: tok.Token,
     value: i64,
 
@@ -157,7 +181,7 @@ const IntegerLiteral = struct {
     }
 };
 
-const BooleanLiteral = struct {
+pub const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
 
@@ -175,7 +199,7 @@ const BooleanLiteral = struct {
     }
 };
 
-const StringLiteral = struct {
+pub const StringLiteral = struct {
     token: tok.Token,
     value: []const u8,
 
@@ -193,7 +217,7 @@ const StringLiteral = struct {
     }
 };
 
-const ArrayLiteral = struct {
+pub const ArrayLiteral = struct {
     token: tok.Token,
     elements: []*ExpressionNode,
 
@@ -219,8 +243,7 @@ const ArrayLiteral = struct {
     }
 };
 
-// FIXME: add format
-const FunctionLiteral = struct {
+pub const FunctionLiteral = struct {
     token: tok.Token,
     parameters: []*Identifier,
     body: []*BlockStatement,
@@ -248,7 +271,7 @@ const FunctionLiteral = struct {
     }
 };
 
-const FunctionCall = struct {
+pub const FunctionCall = struct {
     token: tok.Token,
     function: *ExpressionNode,
     arguments: []*ExpressionNode,
@@ -268,7 +291,7 @@ const FunctionCall = struct {
     }
 };
 
-const Prefix = struct {
+pub const Prefix = struct {
     token: tok.Token,
     operator: []const u8,
     right: *ExpressionNode,
@@ -286,7 +309,7 @@ const Prefix = struct {
     }
 };
 
-const Infix = struct {
+pub const Infix = struct {
     token: tok.Token,
     operator: []const u8,
     left: *ExpressionNode,
@@ -306,7 +329,7 @@ const Infix = struct {
     }
 };
 
-const If = struct {
+pub const If = struct {
     token: tok.Token,
     condition: *ExpressionNode,
     consequence: []*BlockStatement,
@@ -332,7 +355,7 @@ const If = struct {
     }
 };
 
-const Index = struct {
+pub const Index = struct {
     token: tok.Token,
     expression: *ExpressionNode,
     indexed_expression: *ExpressionNode,
@@ -351,7 +374,7 @@ const Index = struct {
     }
 };
 
-const ExpressionNode = union(Expression) {
+pub const ExpressionNode = union(Expression) {
     Identifier: Identifier,
     IntegerLiteral: IntegerLiteral,
     BooleanLiteral: BooleanLiteral,
