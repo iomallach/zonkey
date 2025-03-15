@@ -55,6 +55,8 @@ const Parser = struct {
 
     fn registerParsers(self: *Parser) !void {
         try self.prefix_fns.put(tok.TokenType.INT, Parser.parseIntegerLiteral);
+        try self.prefix_fns.put(tok.TokenType.IDENT, Parser.parseIdentifier);
+        try self.prefix_fns.put(tok.TokenType.STRING, Parser.parseStringLiteral);
     }
 
     pub fn deinit(self: *Parser) void {
@@ -214,25 +216,23 @@ const Parser = struct {
             .value = try std.fmt.parseInt(i64, token.literal, 10),
         } };
     }
+
+    fn parseIdentifier(self: *Parser) !ast.ExpressionNode {
+        const token = self.currentToken();
+        return ast.ExpressionNode{ .Identifier = ast.Identifier{
+            .token = token,
+            .value = token.literal,
+        } };
+    }
+
+    fn parseStringLiteral(self: *Parser) !ast.ExpressionNode {
+        const token = self.currentToken();
+        return ast.ExpressionNode{ .StringLiteral = ast.StringLiteral{
+            .token = token,
+            .value = token.literal,
+        } };
+    }
 };
-
-test "Test let statement" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    var tokens = [_]tok.Token{
-        .{ .literal = "let", .token_type = tok.TokenType.LET, .span = tok.TokenSpan{ .start = 0, .end = 2, .line_number = 0, .source_chunk = "let x = 1;" } },
-        .{ .literal = "x", .token_type = tok.TokenType.IDENT, .span = tok.TokenSpan{ .start = 0, .end = 0, .line_number = 0, .source_chunk = "let x = 1;" } },
-        .{ .literal = "=", .token_type = tok.TokenType.EQUAL, .span = tok.TokenSpan{ .start = 0, .end = 0, .line_number = 0, .source_chunk = "let x = 1;" } },
-        .{ .literal = "1", .token_type = tok.TokenType.INT, .span = tok.TokenSpan{ .start = 0, .end = 0, .line_number = 0, .source_chunk = "let x = 1;" } },
-        .{ .literal = ";", .token_type = tok.TokenType.SEMICOLON, .span = tok.TokenSpan{ .start = 0, .end = 0, .line_number = 0, .source_chunk = "let x = 1;" } },
-        .{ .literal = "EOF", .token_type = tok.TokenType.EOF, .span = tok.TokenSpan{ .start = 0, .end = 0, .line_number = 0, .source_chunk = "" } },
-    };
-
-    var parser = try Parser.init(&tokens, allocator);
-    defer parser.deinit();
-
-    _ = try parser.parse();
-}
 
 const lex = @import("lexer.zig");
 const TestHelpers = struct {
@@ -252,8 +252,9 @@ const TestHelpers = struct {
     pub fn test_let_statement(stmt: *const ast.StatementNode, name: []const u8) !void {
         switch (stmt.*) {
             ast.Statement.LetStatement => |ls| {
-                _ = name;
                 try std.testing.expectEqualStrings(ls.token.literal, "let");
+                try std.testing.expectEqualStrings(ls.name.value, name);
+                try std.testing.expectEqualStrings(ls.name.token.literal, name);
             },
             else => std.debug.panic("Expected let statement, got {s}", .{@tagName(stmt.*)}),
         }
@@ -284,6 +285,7 @@ test "Proper test let statement" {
         .{ .input = "let x = 5", .expected_identifier = "x", .expected_value = Value{ .integer = 5 } },
         .{ .input = "let y = 10", .expected_identifier = "y", .expected_value = Value{ .integer = 10 } },
         .{ .input = "let foobar = y", .expected_identifier = "foobar", .expected_value = Value{ .string = "y" } },
+        .{ .input = "let barbaz = \"str\"", .expected_identifier = "barbaz", .expected_value = Value{ .string = "str" } },
     };
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
