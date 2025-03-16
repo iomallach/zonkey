@@ -57,6 +57,10 @@ const Parser = struct {
         try self.prefix_fns.put(tok.TokenType.INT, Parser.parseIntegerLiteral);
         try self.prefix_fns.put(tok.TokenType.IDENT, Parser.parseIdentifier);
         try self.prefix_fns.put(tok.TokenType.STRING, Parser.parseStringLiteral);
+        try self.prefix_fns.put(tok.TokenType.BANG, Parser.parsePrefixExpression);
+        try self.prefix_fns.put(tok.TokenType.MINUS, Parser.parsePrefixExpression);
+        try self.prefix_fns.put(tok.TokenType.TRUE, Parser.parseBoolean);
+        try self.prefix_fns.put(tok.TokenType.FALSE, Parser.parseBoolean);
     }
 
     pub fn deinit(self: *Parser) void {
@@ -268,6 +272,33 @@ const Parser = struct {
             .value = token.literal,
         } };
     }
+
+    fn parsePrefixExpression(self: *Parser) !ast.ExpressionNode {
+        // current token is e.g. - or !
+        const token = self.currentToken();
+        // move the pointer to the expression
+        self.advance();
+        // parse the expression
+        const expression = try self.parseExpression(Precedence.PREFIX) orelse {
+            //FIXME: somewhere top level the parser needs to be synchronized, since the syntax is broken at this point
+            return error.NullExpressionParsed;
+        };
+
+        // We have to allocate it on the heap due to recursive structure: ExpressionNode -> Prefix -> ExpressionNode
+        const heapExpressionNode = try self.alloc.create(ast.ExpressionNode);
+        heapExpressionNode.* = expression;
+
+        return ast.ExpressionNode{ .Prefix = ast.Prefix{
+            .operator = token.literal,
+            .token = token,
+            .right = heapExpressionNode,
+        } };
+    }
+
+    fn parseBoolean(self: *Parser) !ast.ExpressionNode {
+        const token = self.currentToken();
+        return ast.ExpressionNode{ .BooleanLiteral = ast.BooleanLiteral{ .token = token, .value = self.matchCurrentTokenType(tok.TokenType.TRUE) } };
+    }
 };
 
 const lex = @import("lexer.zig");
@@ -446,4 +477,47 @@ test "Test parse string literals" {
 
     const expression = program.program.items[0].ExpressionStatement.expression;
     try TestHelpers.test_literal_expression(&expression, expected);
+}
+
+test "Parse prefix expressions" {
+    const Value = union(enum) {
+        integer: i64,
+        boolean: bool,
+    };
+    const TestCase = struct {
+        input: []const u8,
+        operator: []const u8,
+        value: Value,
+    };
+    const tests = [_]TestCase{
+        .{ .input = "!5", .operator = "!", .value = Value{ .integer = 5 } },
+        .{ .input = "-10", .operator = "-", .value = Value{ .integer = 10 } },
+        .{ .input = "!true", .operator = "!", .value = Value{ .boolean = true } },
+        .{ .input = "!false", .operator = "!", .value = Value{ .boolean = false } },
+    };
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const child_alloc = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+
+        const expression = &program.program.items[0].ExpressionStatement.expression.Prefix;
+        try std.testing.expectEqualStrings(expression.*.operator, test_case.operator);
+        switch (test_case.value) {
+            inline else => |v| try TestHelpers.test_literal_expression(expression.right, v),
+        }
+    }
 }
