@@ -64,6 +64,7 @@ const Parser = struct {
         try self.prefix_fns.put(tok.TokenType.LPAREN, Parser.parseGroupedExpression);
         try self.prefix_fns.put(tok.TokenType.IF, Parser.parseIfExpression);
         try self.prefix_fns.put(tok.TokenType.FUNCTION, Parser.parseFunctionLiteral);
+        try self.prefix_fns.put(tok.TokenType.LBRACKET, Parser.parseArrayLiteral);
 
         try self.infix_fns.put(tok.TokenType.PLUS, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.MINUS, Parser.parseInfixExpression);
@@ -462,6 +463,45 @@ const Parser = struct {
         }
 
         return parameters;
+    }
+
+    fn parseArrayLiteral(self: *Parser) !ast.ExpressionNode {
+        const lbracket_token = self.currentToken();
+        const elements = try self.parseExpressionList();
+
+        return ast.ExpressionNode{ .ArrayLiteral = ast.ArrayLiteral{
+            .token = lbracket_token,
+            .elements = elements,
+        } };
+    }
+
+    fn parseExpressionList(self: *Parser) !std.ArrayList(ast.ExpressionNode) {
+        var expressions = std.ArrayList(ast.ExpressionNode).init(self.alloc);
+        if (self.matchPeekTokenType(tok.TokenType.RBRACKET)) {
+            self.advance();
+            return expressions;
+        }
+
+        self.advance();
+        var expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+        try expressions.append(expression);
+
+        while (self.matchPeekTokenType(tok.TokenType.COMMA)) {
+            self.advance();
+            self.advance();
+            expression = try self.parseExpression(Precedence.LOWEST) orelse {
+                return error.NullExpressionParsed;
+            };
+            try expressions.append(expression);
+        }
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.RBRACKET)) {
+            return error.UnexpectedToken;
+        }
+
+        return expressions;
     }
 };
 
@@ -894,4 +934,28 @@ test "Parse function parameters" {
             try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[i] }, param);
         }
     }
+}
+
+test "Parse array literals" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "[1, 2 * 2, 3 + 3]";
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const array_literal = &program.program.items[0].ExpressionStatement.expression.ArrayLiteral;
+    try std.testing.expectEqual(3, array_literal.elements.items.len);
+    try TestHelpers.test_integer_literal(&array_literal.elements.items[0], 1);
 }
