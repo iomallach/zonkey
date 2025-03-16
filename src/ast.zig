@@ -258,8 +258,8 @@ pub const ArrayLiteral = struct {
 
 pub const FunctionLiteral = struct {
     token: tok.Token,
-    parameters: []*Identifier,
-    body: []*BlockStatement,
+    parameters: std.ArrayList(Identifier),
+    body: BlockStatement,
 
     pub fn format(
         self: @This(),

@@ -63,6 +63,7 @@ const Parser = struct {
         try self.prefix_fns.put(tok.TokenType.FALSE, Parser.parseBoolean);
         try self.prefix_fns.put(tok.TokenType.LPAREN, Parser.parseGroupedExpression);
         try self.prefix_fns.put(tok.TokenType.IF, Parser.parseIfExpression);
+        try self.prefix_fns.put(tok.TokenType.FUNCTION, Parser.parseFunctionLiteral);
 
         try self.infix_fns.put(tok.TokenType.PLUS, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.MINUS, Parser.parseInfixExpression);
@@ -409,6 +410,58 @@ const Parser = struct {
         }
 
         return block_statements;
+    }
+
+    fn parseFunctionLiteral(self: *Parser) !ast.ExpressionNode {
+        const fn_token = self.currentToken();
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.LPAREN)) {
+            return error.UnexpectedToken;
+        }
+
+        const parameters = try self.parseFunctionParameters();
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
+            return error.UnexpectedToken;
+        }
+
+        const fn_body_statements = try self.parseBlockStatements();
+
+        return ast.ExpressionNode{ .FunctionLiteral = ast.FunctionLiteral{
+            .token = fn_token,
+            .parameters = parameters,
+            .body = fn_body_statements,
+        } };
+    }
+
+    fn parseFunctionParameters(self: *Parser) !std.ArrayList(ast.Identifier) {
+        var parameters = std.ArrayList(ast.Identifier).init(self.alloc);
+        if (self.matchPeekTokenType(tok.TokenType.RPAREN)) {
+            self.advance();
+            return parameters;
+        }
+        if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
+            return error.UnexpectedToken;
+        }
+
+        var ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal };
+        try parameters.append(ident);
+
+        while (self.matchPeekTokenType(tok.TokenType.COMMA)) {
+            self.advance();
+            if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
+                return error.UnexpectedToken;
+            }
+
+            ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal };
+            try parameters.append(ident);
+        }
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
+            return error.UnexpectedToken;
+        }
+
+        return parameters;
     }
 };
 
@@ -768,4 +821,35 @@ test "Parse if expressions" {
     const consequence = &expression.consequence.statements.items[0].ExpressionStatement;
     try TestHelpers.test_identifier(&consequence.expression, "x");
     try std.testing.expect(expression.alternative == null);
+}
+
+test "Parse function literal" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "fn(x, y) { x+y; }";
+    const left_exp: []const u8 = "x";
+    const right_exp: []const u8 = "y";
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const function_literal = &program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
+
+    try std.testing.expectEqual(2, function_literal.parameters.items.len);
+    //FIXME: might actually have to store an ExpressionNode in the parameters list
+    try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[0] }, left_exp);
+    try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[1] }, right_exp);
+    try std.testing.expectEqual(1, function_literal.body.statements.items.len);
+    try TestHelpers.test_infix_expression(&function_literal.body.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, "+");
 }
