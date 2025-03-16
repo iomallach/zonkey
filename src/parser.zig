@@ -61,6 +61,16 @@ const Parser = struct {
         try self.prefix_fns.put(tok.TokenType.MINUS, Parser.parsePrefixExpression);
         try self.prefix_fns.put(tok.TokenType.TRUE, Parser.parseBoolean);
         try self.prefix_fns.put(tok.TokenType.FALSE, Parser.parseBoolean);
+        try self.prefix_fns.put(tok.TokenType.LPAREN, Parser.parseGroupedExpression);
+
+        try self.infix_fns.put(tok.TokenType.PLUS, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.MINUS, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.ASTERISK, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.SLASH, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.GREATER, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.LESS, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.EQUAL_EQUAL, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.BANG_EQUAL, Parser.parseInfixExpression);
     }
 
     pub fn deinit(self: *Parser) void {
@@ -189,14 +199,12 @@ const Parser = struct {
         const let_token = self.currentToken();
         // expect next to be an identifier
         if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
-            try self.peekError(tok.TokenType.IDENT);
             return null;
         }
         const ident_token = self.currentToken();
 
         //expect = sign
         if (!try self.matchNextAndAdvance(tok.TokenType.EQUAL)) {
-            try self.peekError(tok.TokenType.EQUAL);
             return null;
         }
         self.advance();
@@ -299,6 +307,47 @@ const Parser = struct {
         const token = self.currentToken();
         return ast.ExpressionNode{ .BooleanLiteral = ast.BooleanLiteral{ .token = token, .value = self.matchCurrentTokenType(tok.TokenType.TRUE) } };
     }
+
+    fn parseGroupedExpression(self: *Parser) !ast.ExpressionNode {
+        // skip to the next token
+        self.advance();
+
+        const grouped_expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+
+        // grouped expression must end with a matching closing ")"
+        if (try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
+            return error.UnexpectedToken;
+        }
+
+        return grouped_expression;
+    }
+
+    fn parseInfixExpression(self: *Parser, left: ast.ExpressionNode) !ast.ExpressionNode {
+        // the operator of the infix expression, e.g. +, -, *, /, etc.
+        const token = self.currentToken();
+        const cur_precedence = self.currentPrecedence();
+        // skip to the token starting the next expression
+        self.advance();
+        // parse right expression
+        const expression = try self.parseExpression(cur_precedence) orelse {
+            return error.NullExpressionParsed;
+        };
+
+        // have to allocate on the heap due to recursive structure
+        const heapRightExpressionNode = try self.alloc.create(ast.ExpressionNode);
+        heapRightExpressionNode.* = expression;
+        const heapLeftExpressionNode = try self.alloc.create(ast.ExpressionNode);
+        heapLeftExpressionNode.* = left;
+
+        return ast.ExpressionNode{ .Infix = ast.Infix{
+            .token = token,
+            .operator = token.literal,
+            .left = heapLeftExpressionNode,
+            .right = heapRightExpressionNode,
+        } };
+    }
 };
 
 const lex = @import("lexer.zig");
@@ -354,6 +403,12 @@ const TestHelpers = struct {
                 unreachable;
             },
         }
+    }
+
+    pub fn test_infix_expression(expression: *const ast.Infix, left: anytype, right: anytype, operator: []const u8) !void {
+        try std.testing.expectEqualStrings(operator, expression.operator);
+        try TestHelpers.test_literal_expression(expression.left, left);
+        try TestHelpers.test_literal_expression(expression.right, right);
     }
 
     pub fn test_integer_literal(expression: *const ast.ExpressionNode, expected: i64) !void {
@@ -473,6 +528,30 @@ test "Test parse string literals" {
     try TestHelpers.test_literal_expression(&expression, expected);
 }
 
+test "Parse integer expressions" {
+    const input = "5;";
+    const expected: i64 = 5;
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const expression = program.program.items[0].ExpressionStatement.expression;
+    try TestHelpers.test_literal_expression(&expression, expected);
+}
+
 test "Parse prefix expressions" {
     const Value = union(enum) {
         integer: i64,
@@ -510,6 +589,91 @@ test "Parse prefix expressions" {
         try std.testing.expectEqualStrings(expression.*.operator, test_case.operator);
         switch (test_case.value) {
             inline else => |v| try TestHelpers.test_literal_expression(expression.right, v),
+        }
+    }
+}
+
+test "Parse boolean expression" {
+    const TestCase = struct {
+        input: []const u8,
+        value: bool,
+    };
+    const tests = [_]TestCase{
+        .{ .input = "true;", .value = true },
+        .{ .input = "false;", .value = false },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+
+        const expression = &program.program.items[0].ExpressionStatement.expression;
+        try TestHelpers.test_literal_expression(expression, test_case.value);
+    }
+}
+
+test "Parse infix expression" {
+    const Value = union(enum) {
+        integer: i64,
+        boolean: bool,
+    };
+    const TestCase = struct {
+        input: []const u8,
+        operator: []const u8,
+        left: Value,
+        right: Value,
+    };
+    const tests = [_]TestCase{
+        .{ .input = "5 + 5;", .operator = "+", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 - 5;", .operator = "-", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 * 5;", .operator = "*", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 / 5;", .operator = "/", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 > 5;", .operator = ">", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 < 5;", .operator = "<", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 == 5;", .operator = "==", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 != 5;", .operator = "!=", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "true == true;", .operator = "==", .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },
+        .{ .input = "true != true;", .operator = "!=", .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },
+        .{ .input = "true == false;", .operator = "==", .left = Value{ .boolean = true }, .right = Value{ .boolean = false } },
+        .{ .input = "true != false;", .operator = "!=", .left = Value{ .boolean = true }, .right = Value{ .boolean = false } },
+        .{ .input = "false == false;", .operator = "==", .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
+        .{ .input = "false != false;", .operator = "!=", .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
+    };
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+        try std.testing.expectEqual(1, program.program.items.len);
+
+        const expression = &program.program.items[0].ExpressionStatement.expression.Infix;
+
+        switch (test_case.left) {
+            inline else => |l| switch (test_case.right) {
+                inline else => |r| try TestHelpers.test_infix_expression(expression, l, r, test_case.operator),
+            },
         }
     }
 }
