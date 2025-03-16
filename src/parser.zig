@@ -853,3 +853,45 @@ test "Parse function literal" {
     try std.testing.expectEqual(1, function_literal.body.statements.items.len);
     try TestHelpers.test_infix_expression(&function_literal.body.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, "+");
 }
+
+test "Parse function parameters" {
+    const TestCase = struct {
+        input: []const u8,
+        parameters: [][]const u8,
+
+        pub fn strSlice(comptime strings: []const []const u8) [][]const u8 {
+            const str: [][]const u8 = @constCast(strings);
+            return str;
+        }
+    };
+    const tests = [_]TestCase{
+        .{ .input = "fn(){};", .parameters = &[_][]const u8{} },
+        .{ .input = "fn(x){};", .parameters = TestCase.strSlice(&.{"x"}) },
+        .{ .input = "fn(x, y){};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+        try std.testing.expectEqual(1, program.program.items.len);
+
+        const function_literal = &program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
+        try std.testing.expectEqual(test_case.parameters.len, function_literal.parameters.items.len);
+
+        for (test_case.parameters, 0..) |param, i| {
+            try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[i] }, param);
+        }
+    }
+}
