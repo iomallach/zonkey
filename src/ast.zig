@@ -38,7 +38,20 @@ pub const Statement = enum {
 
 pub const BlockStatement = struct {
     token: tok.Token,
-    statements: []*StatementNode,
+    statements: std.ArrayList(StatementNode),
+    allocator: std.mem.Allocator,
+
+    pub fn init(token: tok.Token, allocator: std.mem.Allocator) BlockStatement {
+        return BlockStatement{
+            .token = token,
+            .statements = std.ArrayList(StatementNode).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn addStatement(self: *BlockStatement, stmt: StatementNode) !void {
+        try self.statements.append(stmt);
+    }
 
     pub fn format(
         self: @This(),
@@ -332,8 +345,8 @@ pub const Infix = struct {
 pub const If = struct {
     token: tok.Token,
     condition: *ExpressionNode,
-    consequence: []*BlockStatement,
-    alternative: ?[]*BlockStatement,
+    consequence: BlockStatement,
+    alternative: ?BlockStatement,
 
     pub fn format(
         self: @This(),

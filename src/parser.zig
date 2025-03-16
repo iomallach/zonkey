@@ -62,6 +62,7 @@ const Parser = struct {
         try self.prefix_fns.put(tok.TokenType.TRUE, Parser.parseBoolean);
         try self.prefix_fns.put(tok.TokenType.FALSE, Parser.parseBoolean);
         try self.prefix_fns.put(tok.TokenType.LPAREN, Parser.parseGroupedExpression);
+        try self.prefix_fns.put(tok.TokenType.IF, Parser.parseIfExpression);
 
         try self.infix_fns.put(tok.TokenType.PLUS, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.MINUS, Parser.parseInfixExpression);
@@ -347,6 +348,67 @@ const Parser = struct {
             .left = heapLeftExpressionNode,
             .right = heapRightExpressionNode,
         } };
+    }
+
+    fn parseIfExpression(self: *Parser) !ast.ExpressionNode {
+        const if_token = self.currentToken();
+        // advance to the start of the expression
+        self.advance();
+        const if_expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+        const heap_if_expression = try self.alloc.create(ast.ExpressionNode);
+        heap_if_expression.* = if_expression;
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
+            return error.UnexpectedToken;
+        }
+
+        const consequence = try self.parseBlockStatements();
+
+        if (self.matchPeekTokenType(tok.TokenType.ELSE)) {
+            self.advance();
+
+            if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
+                return error.UnexpectedToken;
+            }
+            const alternative = try self.parseBlockStatements();
+
+            return ast.ExpressionNode{
+                .If = ast.If{
+                    .token = if_token,
+                    .condition = heap_if_expression,
+                    .consequence = consequence,
+                    .alternative = alternative,
+                },
+            };
+        }
+
+        return ast.ExpressionNode{ .If = ast.If{
+            .token = if_token,
+            .condition = heap_if_expression,
+            .consequence = consequence,
+            .alternative = null,
+        } };
+    }
+
+    fn parseBlockStatements(self: *Parser) !ast.BlockStatement {
+        const lbrace_token = self.currentToken();
+        self.advance();
+
+        var block_statements = ast.BlockStatement.init(lbrace_token, self.alloc);
+
+        while (!self.matchCurrentTokenType(tok.TokenType.RBRACE) and !self.matchCurrentTokenType(tok.TokenType.EOF)) {
+            const statement = try self.parseStatement() orelse {
+                // FIXME: should record an error and skip to the next statement
+                return error.NullStatementParsed;
+            };
+            try block_statements.addStatement(statement);
+            // we're looking at the last token after each parselet, so skipping it
+            self.advance();
+        }
+
+        return block_statements;
     }
 };
 
@@ -676,4 +738,34 @@ test "Parse infix expression" {
             },
         }
     }
+}
+
+test "Parse if expressions" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "if x<y { x }";
+    const left_exp: []const u8 = "x";
+    const right_exp: []const u8 = "y";
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const expression = &program.program.items[0].ExpressionStatement.expression.If;
+    try TestHelpers.test_infix_expression(&expression.condition.Infix, left_exp, right_exp, "<");
+    try std.testing.expectEqual(1, expression.consequence.statements.items.len);
+
+    const consequence = &expression.consequence.statements.items[0].ExpressionStatement;
+    try TestHelpers.test_identifier(&consequence.expression, "x");
+    try std.testing.expect(expression.alternative == null);
 }
