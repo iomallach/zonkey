@@ -75,7 +75,7 @@ pub const LetStatement = struct {
 
 pub const ReturnStatement = struct {
     token: tok.Token,
-    return_value: *ExpressionNode,
+    return_value: ExpressionNode,
 
     pub fn format(
         self: @This(),
@@ -91,7 +91,7 @@ pub const ReturnStatement = struct {
 
 pub const ExpressionStatement = struct {
     token: tok.Token,
-    expression: *ExpressionNode,
+    expression: ExpressionNode,
 
     pub fn format(
         self: @This(),
@@ -105,9 +105,9 @@ pub const ExpressionStatement = struct {
 
 pub const StatementNode = union(Statement) {
     LetStatement: LetStatement,
-    ReturnStatement: *ReturnStatement,
-    ExpressionStatement: *ExpressionStatement,
-    BlockStatement: *BlockStatement,
+    ReturnStatement: ReturnStatement,
+    ExpressionStatement: ExpressionStatement,
+    BlockStatement: BlockStatement,
 
     pub fn format(
         self: @This(),

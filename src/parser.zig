@@ -176,7 +176,7 @@ const Parser = struct {
         return switch (self.currentToken().token_type) {
             tok.TokenType.LET => try self.parseLetStatement(),
             tok.TokenType.RETURN => unreachable,
-            else => self.parseExpressionStatement(),
+            else => try self.parseExpressionStatement(),
         };
     }
 
@@ -208,7 +208,7 @@ const Parser = struct {
         return ast.StatementNode.createLetStatement(ast.Identifier{ .token = ident_token, .value = ident_token.literal }, let_token, expression);
     }
 
-    fn parseExpressionStatement(self: *Parser) !?ast.ExpressionStatement {
+    fn parseExpressionStatement(self: *Parser) !?ast.StatementNode {
         const token = self.currentToken();
         //FIXME: this here is still optional
         const expression = try self.parseExpression(Precedence.LOWEST) orelse {
@@ -219,10 +219,10 @@ const Parser = struct {
             self.advance();
         }
 
-        return ast.ExpressionStatement{
+        return ast.StatementNode{ .ExpressionStatement = ast.ExpressionStatement{
             .token = token,
             .expression = expression,
-        };
+        } };
     }
 
     fn parseExpression(self: *Parser, prec: Precedence) !?ast.ExpressionNode {
@@ -305,10 +305,53 @@ const TestHelpers = struct {
             return error.ParserHadErrors;
         }
     }
+
+    pub fn test_literal_expression(expression: *const ast.ExpressionNode, expected: anytype) !void {
+        switch (@TypeOf(expected)) {
+            i64 => return TestHelpers.test_integer_literal(expression, @as(i64, expected)),
+            bool => return TestHelpers.test_boolean_literal(expression, expected),
+            []const u8 => {
+                if (expression.* == .StringLiteral) {
+                    return TestHelpers.test_string_literal(expression, expected);
+                }
+                if (expression.* == .Identifier) {
+                    return TestHelpers.test_identifier(expression, expected);
+                }
+            },
+            else => {
+                std.debug.print("Found type {any}\n", .{@TypeOf(expected)});
+                unreachable;
+            },
+        }
+    }
+
+    pub fn test_integer_literal(expression: *const ast.ExpressionNode, expected: i64) !void {
+        if (expression.* != .IntegerLiteral) {
+            return error.ExpectedIntegerLiteral;
+        }
+        try std.testing.expect(expression.* == .IntegerLiteral);
+        try std.testing.expectEqual(expression.*.IntegerLiteral.value, expected);
+    }
+
+    pub fn test_string_literal(expression: *const ast.ExpressionNode, expected: []const u8) !void {
+        try std.testing.expect(expression.* == .StringLiteral);
+        try std.testing.expectEqualStrings(expression.*.StringLiteral.value, expected);
+    }
+
+    pub fn test_boolean_literal(expression: *const ast.ExpressionNode, expected: bool) !void {
+        try std.testing.expect(expression.* == .BooleanLiteral);
+        try std.testing.expectEqual(expected, expression.*.BooleanLiteral.value);
+    }
+
+    pub fn test_identifier(expression: *const ast.ExpressionNode, expected: []const u8) !void {
+        try std.testing.expect(expression.* == .Identifier);
+        try std.testing.expectEqualStrings(expression.*.Identifier.value, expected);
+        try std.testing.expectEqualStrings(expression.*.Identifier.token.literal, expected);
+    }
 };
 
-test "Proper test let statement" {
-    const Value = union {
+test "Test parse let statement" {
+    const Value = union(enum) {
         integer: i64,
         string: []const u8,
     };
@@ -344,5 +387,63 @@ test "Proper test let statement" {
         };
         try std.testing.expectEqual(1, program.program.items.len);
         try TestHelpers.test_let_statement(&program.program.items[0], test_case.expected_identifier);
+
+        const expression = &program.program.items[0].LetStatement.value;
+        switch (test_case.expected_value) {
+            .integer => |v| try TestHelpers.test_literal_expression(expression, v),
+            .string => |v| try TestHelpers.test_literal_expression(expression, v),
+        }
     }
+}
+
+test "Test parse identifier" {
+    const input = "foobar;";
+    const expected: []const u8 = "foobar";
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const child_alloc = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const expression = program.program.items[0].ExpressionStatement.expression;
+    try TestHelpers.test_literal_expression(&expression, expected);
+}
+
+test "Test parse string literals" {
+    const input = "\"Hello world!\"";
+    const expected: []const u8 = "Hello world!";
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const child_alloc = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const expression = program.program.items[0].ExpressionStatement.expression;
+    try TestHelpers.test_literal_expression(&expression, expected);
 }
