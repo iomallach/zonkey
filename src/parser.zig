@@ -398,9 +398,7 @@ test "Test parse let statement" {
         .{ .input = "let barbaz = \"str\"", .expected_identifier = "barbaz", .expected_value = Value{ .string = "str" } },
     };
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const child_alloc = gpa.allocator();
-    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -431,9 +429,7 @@ test "Test parse identifier" {
     const input = "foobar;";
     const expected: []const u8 = "foobar";
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const child_alloc = gpa.allocator();
-    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -457,9 +453,7 @@ test "Test parse string literals" {
     const input = "\"Hello world!\"";
     const expected: []const u8 = "Hello world!";
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const child_alloc = gpa.allocator();
-    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -496,9 +490,7 @@ test "Parse prefix expressions" {
         .{ .input = "!false", .operator = "!", .value = Value{ .boolean = false } },
     };
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const child_alloc = gpa.allocator();
-    var arena = std.heap.ArenaAllocator.init(child_alloc);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
