@@ -75,6 +75,7 @@ const Parser = struct {
         try self.infix_fns.put(tok.TokenType.EQUAL_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.BANG_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.LPAREN, Parser.parseFunctionCall);
+        try self.infix_fns.put(tok.TokenType.LBRACKET, Parser.parseIndexExpression);
     }
 
     pub fn deinit(self: *Parser) void {
@@ -516,6 +517,34 @@ const Parser = struct {
             .token = lparen_token,
             .function = heap_func_ident,
             .arguments = function_arguments,
+        } };
+    }
+
+    fn parseIndexExpression(self: *Parser, indexed_exp: ast.ExpressionNode) !ast.ExpressionNode {
+        const lbracket_token = self.currentToken();
+        if (self.matchPeekTokenType(tok.TokenType.RBRACKET)) {
+            return error.UnexpectedToken;
+        }
+        self.advance();
+
+        const indexing_expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.RBRACKET)) {
+            return error.UnexpectedToken;
+        }
+
+        const heap_indexed_exp = try self.alloc.create(ast.ExpressionNode);
+        heap_indexed_exp.* = indexed_exp;
+
+        const heap_indexing_exp = try self.alloc.create(ast.ExpressionNode);
+        heap_indexing_exp.* = indexing_expression;
+
+        return ast.ExpressionNode{ .Index = ast.Index{
+            .token = lbracket_token,
+            .indexed_expression = heap_indexed_exp,
+            .expression = heap_indexing_exp,
         } };
     }
 };
@@ -1001,4 +1030,28 @@ test "Parse function call" {
     try TestHelpers.test_literal_expression(&function_call_args[0], 1);
     try TestHelpers.test_infix_expression(&function_call_args[1].Infix, 2, 3, "*");
     try TestHelpers.test_infix_expression(&function_call_args[2].Infix, 4, 5, "+");
+}
+
+test "Parse index expression" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "myArray[1 + 1]";
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const index_expression = &program.program.items[0].ExpressionStatement.expression.Index;
+    try TestHelpers.test_identifier(index_expression.indexed_expression, "myArray");
+    try TestHelpers.test_infix_expression(&index_expression.expression.Infix, 1, 1, "+");
 }
