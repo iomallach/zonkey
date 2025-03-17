@@ -287,7 +287,7 @@ pub const FunctionLiteral = struct {
 pub const FunctionCall = struct {
     token: tok.Token,
     function: *ExpressionNode,
-    arguments: []*ExpressionNode,
+    arguments: std.ArrayList(ExpressionNode),
 
     pub fn format(
         self: @This(),

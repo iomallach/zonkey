@@ -74,6 +74,7 @@ const Parser = struct {
         try self.infix_fns.put(tok.TokenType.LESS, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.EQUAL_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.BANG_EQUAL, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.LPAREN, Parser.parseFunctionCall);
     }
 
     pub fn deinit(self: *Parser) void {
@@ -467,7 +468,7 @@ const Parser = struct {
 
     fn parseArrayLiteral(self: *Parser) !ast.ExpressionNode {
         const lbracket_token = self.currentToken();
-        const elements = try self.parseExpressionList();
+        const elements = try self.parseExpressionList(tok.TokenType.RBRACKET);
 
         return ast.ExpressionNode{ .ArrayLiteral = ast.ArrayLiteral{
             .token = lbracket_token,
@@ -475,9 +476,9 @@ const Parser = struct {
         } };
     }
 
-    fn parseExpressionList(self: *Parser) !std.ArrayList(ast.ExpressionNode) {
+    fn parseExpressionList(self: *Parser, end: tok.TokenType) !std.ArrayList(ast.ExpressionNode) {
         var expressions = std.ArrayList(ast.ExpressionNode).init(self.alloc);
-        if (self.matchPeekTokenType(tok.TokenType.RBRACKET)) {
+        if (self.matchPeekTokenType(end)) {
             self.advance();
             return expressions;
         }
@@ -497,11 +498,25 @@ const Parser = struct {
             try expressions.append(expression);
         }
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.RBRACKET)) {
+        if (!try self.matchNextAndAdvance(end)) {
             return error.UnexpectedToken;
         }
 
         return expressions;
+    }
+
+    fn parseFunctionCall(self: *Parser, function_ident: ast.ExpressionNode) !ast.ExpressionNode {
+        const lparen_token = self.currentToken();
+        const function_arguments = try self.parseExpressionList(tok.TokenType.RPAREN);
+
+        const heap_func_ident = try self.alloc.create(ast.ExpressionNode);
+        heap_func_ident.* = function_ident;
+
+        return ast.ExpressionNode{ .FunctionCall = ast.FunctionCall{
+            .token = lparen_token,
+            .function = heap_func_ident,
+            .arguments = function_arguments,
+        } };
     }
 };
 
@@ -543,7 +558,7 @@ const TestHelpers = struct {
 
     pub fn test_literal_expression(expression: *const ast.ExpressionNode, expected: anytype) !void {
         switch (@TypeOf(expected)) {
-            i64 => return TestHelpers.test_integer_literal(expression, @as(i64, expected)),
+            i64, comptime_int => return TestHelpers.test_integer_literal(expression, @as(i64, expected)),
             bool => return TestHelpers.test_boolean_literal(expression, expected),
             []const u8 => {
                 if (expression.* == .StringLiteral) {
@@ -958,4 +973,32 @@ test "Parse array literals" {
     const array_literal = &program.program.items[0].ExpressionStatement.expression.ArrayLiteral;
     try std.testing.expectEqual(3, array_literal.elements.items.len);
     try TestHelpers.test_integer_literal(&array_literal.elements.items[0], 1);
+}
+
+test "Parse function call" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "add(1, 2 * 3, 4 + 5)";
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    const program = parser.parse() catch |err| {
+        //FIXME: stop ignoring the error once the error diagnostics are complete
+        TestHelpers.test_parse_errors(&parser) catch {};
+        return err;
+    };
+    try std.testing.expectEqual(1, program.program.items.len);
+
+    const function_call = &program.program.items[0].ExpressionStatement.expression.FunctionCall;
+    try TestHelpers.test_identifier(function_call.function, "add");
+    try std.testing.expectEqual(3, function_call.arguments.items.len);
+    const function_call_args = function_call.arguments.items;
+    try TestHelpers.test_literal_expression(&function_call_args[0], 1);
+    try TestHelpers.test_infix_expression(&function_call_args[1].Infix, 2, 3, "*");
+    try TestHelpers.test_infix_expression(&function_call_args[2].Infix, 4, 5, "+");
 }
