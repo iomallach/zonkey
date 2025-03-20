@@ -7,6 +7,7 @@ pub const TokenType = enum {
     // Identifiers + literals
     IDENT,
     INT,
+    FLOAT,
 
     // Operators
     EQUAL,

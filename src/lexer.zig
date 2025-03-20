@@ -13,24 +13,6 @@ pub const Lexer = struct {
 
     errors_list: std.ArrayList([]const u8),
 
-    const consume_while_suit = struct {
-        pub fn not_quote_and_end(c: u8) bool {
-            return (c != '"') and (c != 0);
-        }
-
-        pub fn is_letter(c: u8) bool {
-            return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c == '_');
-        }
-
-        pub fn is_numeric(c: u8) bool {
-            return (c >= '0' and c <= '9');
-        }
-
-        pub fn is_whitespace(c: u8) bool {
-            return (c == ' ') or (c == '\t') or (c == '\n') or (c == '\r');
-        }
-    };
-
     pub fn init(chars: []const u8, alloc: std.mem.Allocator) Lexer {
         return .{
             .chars = chars,
@@ -73,17 +55,6 @@ pub const Lexer = struct {
         return self.chars.len;
     }
 
-    // fn find_end_of_line(self: *Lexer) usize {
-    //     const newline: u8 = '\n';
-    //     for (self.chars[self.position..], self.position..) |c, offset| {
-    //         if ((c == newline) || (c == 0)) {
-    //             return self.position + offset + 1;
-    //         }
-    //     }
-    //
-    //     return self.chars.len;
-    // }
-
     fn token_span(self: *Lexer, start: usize, end: usize) tok.TokenSpan {
         const cur_line_end = self.find_end_of_line();
         return .{
@@ -103,7 +74,7 @@ pub const Lexer = struct {
         var span: tok.TokenSpan = undefined;
 
         self.maybe_increment_line();
-        _ = self.consume_while(consume_while_suit.is_whitespace);
+        _ = self.consume_while(Lexer.is_whitespace);
 
         switch (self.char()) {
             '[' => {
@@ -186,7 +157,7 @@ pub const Lexer = struct {
             '"' => {
                 // skip the '"' in the literal
                 self.advance();
-                const literal_and_span = self.consume_while(consume_while_suit.not_quote_and_end);
+                const literal_and_span = self.consume_while(Lexer.not_quote_and_end);
                 token = tok.Token{ .token_type = tok.TokenType.STRING, .literal = literal_and_span.literal, .span = literal_and_span.span };
                 if (self.char() != '"') {
                     //FIXME: error message is broken, see go implementation
@@ -199,12 +170,16 @@ pub const Lexer = struct {
                 token = tok.Token{ .token_type = tok.TokenType.EOF, .literal = "", .span = span };
             },
             else => {
-                if (consume_while_suit.is_letter(self.char())) {
-                    const literal_and_span = self.consume_while(consume_while_suit.is_letter);
+                if (self.is_letter()) {
+                    const literal_and_span = self.consume_while(Lexer.is_letter);
                     const token_type = tok.map_identifier(literal_and_span.literal);
                     return tok.Token{ .token_type = token_type, .literal = literal_and_span.literal, .span = literal_and_span.span };
-                } else if (consume_while_suit.is_numeric(self.char())) {
-                    const literal_and_span = self.consume_while(consume_while_suit.is_numeric);
+                } else if (self.is_integer()) {
+                    const literal_and_span = self.consume_while(Lexer.is_numeric);
+                    if (std.mem.indexOf(u8, literal_and_span.literal, ".")) |index| {
+                        _ = index;
+                        return tok.Token{ .token_type = tok.TokenType.FLOAT, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                    }
                     return tok.Token{ .token_type = tok.TokenType.INT, .literal = literal_and_span.literal, .span = literal_and_span.span };
                 }
                 //FIXME: else ILLEGAL
@@ -232,18 +207,52 @@ pub const Lexer = struct {
         return self.chars[self.position + 1];
     }
 
-    fn consume_while(self: *Lexer, f: fn (u8) bool) LiteralAndSpan {
-        if (!f(self.char())) {
+    fn consume_while(self: *Lexer, f: fn (*Lexer) bool) LiteralAndSpan {
+        if (!f(self)) {
             return .{ .literal = "", .span = .{ .start = 0, .end = 0, .line_number = 0, .source_chunk = "" } };
         }
 
         const start = self.position;
-        while (f(self.char())) {
+        while (f(self)) {
             self.advance();
         }
         const span = self.token_span(start, self.position);
 
         return .{ .literal = self.chars[start..self.position], .span = span };
+    }
+
+    fn not_quote_and_end(self: *Lexer) bool {
+        const c = self.char();
+        return (c != '"') and (c != 0);
+    }
+
+    fn is_letter(self: *Lexer) bool {
+        const c = self.char();
+        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c == '_');
+    }
+
+    fn is_integer(self: *Lexer) bool {
+        const c = self.char();
+        return (c >= '0' and c <= '9');
+    }
+
+    fn is_next_integer(self: *Lexer) bool {
+        const c = self.peek();
+        return (c >= '0' and c <= '9');
+    }
+
+    fn is_valid_dot_in_number(self: *Lexer) bool {
+        const c = self.char();
+        return (c == '.' and self.is_next_integer());
+    }
+
+    fn is_numeric(self: *Lexer) bool {
+        return (self.is_integer() or self.is_valid_dot_in_number());
+    }
+
+    fn is_whitespace(self: *Lexer) bool {
+        const c = self.char();
+        return (c == ' ') or (c == '\t') or (c == '\n') or (c == '\r');
     }
 };
 

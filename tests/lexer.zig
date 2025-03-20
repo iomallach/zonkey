@@ -122,10 +122,11 @@ test "Test random identifiers" {
 }
 
 test "Test numeric literals" {
-    const input = "12345 34179";
+    const input = "12345 34179 324.421";
     const tests = [_]TestCase{
         .{ .expected_type = TokenType.INT, .expected_literal = "12345" },
         .{ .expected_type = TokenType.INT, .expected_literal = "34179" },
+        .{ .expected_type = TokenType.FLOAT, .expected_literal = "324.421" },
     };
 
     const alloc = gpa.allocator();
