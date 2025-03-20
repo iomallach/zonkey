@@ -28,6 +28,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const exe = b.addExecutable(.{
+        .name = "zonkey",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/llvm/19.1.7_1/include" });
+    exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/llvm/19.1.7_1/lib" });
+    exe.linkLibC();
+    exe.linkSystemLibrary("LLVM");
+    b.installArtifact(exe);
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const tests = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("tests/lexer.zig"), .target = target, .optimize = optimize, .imports = &.{
