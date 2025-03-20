@@ -55,6 +55,7 @@ pub const Parser = struct {
 
     fn registerParsers(self: *Parser) !void {
         try self.prefix_fns.put(tok.TokenType.INT, Parser.parseIntegerLiteral);
+        try self.prefix_fns.put(tok.TokenType.FLOAT, Parser.parseFloatLiteral);
         try self.prefix_fns.put(tok.TokenType.IDENT, Parser.parseIdentifier);
         try self.prefix_fns.put(tok.TokenType.STRING, Parser.parseStringLiteral);
         try self.prefix_fns.put(tok.TokenType.BANG, Parser.parsePrefixExpression);
@@ -267,6 +268,14 @@ pub const Parser = struct {
         return ast.ExpressionNode{ .IntegerLiteral = ast.IntegerLiteral{
             .token = token,
             .value = try std.fmt.parseInt(i64, token.literal, 10),
+        } };
+    }
+
+    fn parseFloatLiteral(self: *Parser) !ast.ExpressionNode {
+        const token = self.currentToken();
+        return ast.ExpressionNode{ .FloatLiteral = ast.FloatLiteral{
+            .token = token,
+            .value = try std.fmt.parseFloat(f64, token.literal),
         } };
     }
 
@@ -588,6 +597,7 @@ const TestHelpers = struct {
     pub fn test_literal_expression(expression: *const ast.ExpressionNode, expected: anytype) !void {
         switch (@TypeOf(expected)) {
             i64, comptime_int => return TestHelpers.test_integer_literal(expression, @as(i64, expected)),
+            f64, comptime_float => return TestHelpers.test_float_literal(expression, @as(f64, expected)),
             bool => return TestHelpers.test_boolean_literal(expression, expected),
             []const u8 => {
                 if (expression.* == .StringLiteral) {
@@ -611,11 +621,13 @@ const TestHelpers = struct {
     }
 
     pub fn test_integer_literal(expression: *const ast.ExpressionNode, expected: i64) !void {
-        if (expression.* != .IntegerLiteral) {
-            return error.ExpectedIntegerLiteral;
-        }
         try std.testing.expect(expression.* == .IntegerLiteral);
         try std.testing.expectEqual(expression.*.IntegerLiteral.value, expected);
+    }
+
+    pub fn test_float_literal(expression: *const ast.ExpressionNode, expected: f64) !void {
+        try std.testing.expect(expression.* == .FloatLiteral);
+        try std.testing.expectEqual(expression.*.FloatLiteral.value, expected);
     }
 
     pub fn test_string_literal(expression: *const ast.ExpressionNode, expected: []const u8) !void {
@@ -727,28 +739,42 @@ test "Test parse string literals" {
     try TestHelpers.test_literal_expression(&expression, expected);
 }
 
-test "Parse integer expressions" {
-    const input = "5;";
-    const expected: i64 = 5;
+test "Parse numeric expressions" {
+    const Value = union(enum) {
+        integer: i64,
+        float: f64,
+    };
+    const TestCase = struct {
+        input: []const u8,
+        expected: Value,
+    };
+    const tests = [_]TestCase{
+        .{ .input = "5;", .expected = Value{ .integer = 5 } },
+        .{ .input = "134.965", .expected = Value{ .float = 134.965 } },
+    };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var lexer = lex.Lexer.init(input, allocator);
-    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
-    const slice_tokens = try lexed_tokens.toOwnedSlice();
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
-    try std.testing.expectEqual(1, program.program.items.len);
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+        try std.testing.expectEqual(1, program.program.items.len);
 
-    const expression = program.program.items[0].ExpressionStatement.expression;
-    try TestHelpers.test_literal_expression(&expression, expected);
+        const expression = program.program.items[0].ExpressionStatement.expression;
+        switch (test_case.expected) {
+            inline else => |v| try TestHelpers.test_literal_expression(&expression, v),
+        }
+    }
 }
 
 test "Parse prefix expressions" {

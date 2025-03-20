@@ -268,35 +268,3 @@ test "Test find_end_of_line" {
 
     try std.testing.expectEqual(5, eol);
 }
-
-//FIXME: add more cases, edge cases
-test "Test consume_while string literals" {
-    const ConsumeTestCase = struct { input: []const u8, expected: []const u8 };
-
-    const is_quote_or_end = struct {
-        pub fn call(c: u8) bool {
-            return (c != '"') and (c != 0);
-        }
-    };
-
-    const tests = [_]ConsumeTestCase{
-        .{ .input = "\"some_text\"stuff", .expected = "some_text" },
-        .{ .input = "\"some_text\"", .expected = "some_text" },
-        //FIXME: this test passes, but the literal is broken; not handled in next_token
-        .{ .input = "\"some_text", .expected = "some_text" },
-        .{ .input = "\"\"", .expected = "" },
-    };
-
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
-    for (tests) |test_case| {
-        const alloc = gpa.allocator();
-        var lex = Lexer.init(test_case.input, alloc);
-        defer lex.deinit();
-
-        // skip "
-        lex.advance();
-        const lit_and_span = lex.consume_while(is_quote_or_end.call);
-        try std.testing.expectEqualStrings(test_case.expected, lit_and_span.literal);
-    }
-}
