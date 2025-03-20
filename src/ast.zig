@@ -27,6 +27,17 @@ pub const Program = struct {
     pub fn addStatement(self: *Program, stmt: StatementNode) !void {
         try self.program.append(stmt);
     }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        for (self.program.items) |s| {
+            try s.format(fmt, options, writer);
+        }
+    }
 };
 
 pub const Statement = enum {
@@ -58,10 +69,10 @@ pub const BlockStatement = struct {
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
-    ) !void {
+    ) anyerror!void {
         try writer.writeAll("{\n");
-        for (self.statements) |s| {
-            s.format(fmt, options, writer);
+        for (self.statements.items) |s| {
+            try s.format(fmt, options, writer);
         }
         try writer.writeAll("\n}");
     }
@@ -76,13 +87,13 @@ pub const LetStatement = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
-        try writer.writeAll("{} ", self.token.literal);
+        try writer.writeAll(self.token.literal);
         try self.name.format(fmt, options, writer);
         try writer.writeAll(" = ");
         try self.value.format(fmt, options, writer);
-        try writer.writerAll(";");
+        try writer.writeAll(";");
     }
 };
 
@@ -94,11 +105,11 @@ pub const ReturnStatement = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
-        try writer.writeAll("{} ", .{self.token.literal});
+        try writer.writeAll(self.token.literal);
         try self.return_value.format(fmt, options, writer);
-        try writer.writerAll(";");
+        try writer.writeAll(";");
     }
 };
 
@@ -167,10 +178,10 @@ pub const Identifier = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
         if (fmt.len == 0) {
-            return writer.print("{s}", .{self.value});
+            return writer.writeAll(self.value);
         }
         return self.format("", options, writer);
     }
@@ -184,10 +195,10 @@ pub const IntegerLiteral = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
         if (fmt.len == 0) {
-            return writer.print("{s}", .{self.token.literal});
+            return writer.writeAll(self.token.literal);
         }
 
         return self.format("", options, writer);
@@ -202,10 +213,10 @@ pub const BooleanLiteral = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
         if (fmt.len == 0) {
-            return writer.print("{s}", .{self.token.literal});
+            return writer.writeAll(self.token.literal);
         }
 
         return self.format("", options, writer);
@@ -220,10 +231,10 @@ pub const StringLiteral = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
         if (fmt.len == 0) {
-            return writer.print("{s}", .{self.value});
+            return writer.writeAll(self.value);
         }
 
         return self.format("", options, writer);
@@ -238,7 +249,7 @@ pub const ArrayLiteral = struct {
         self: @This(),
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: std.io.AnyWriter,
     ) !void {
         _ = fmt;
 
@@ -267,7 +278,7 @@ pub const FunctionLiteral = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.writeAll("{s}", .{self.token.literal});
+        try writer.writeAll(self.token.literal);
         try writer.writeAll("(");
         for (self.parameters, 0..) |param, i| {
             try param.format(fmt, options, writer);
@@ -336,7 +347,7 @@ pub const Infix = struct {
     ) !void {
         try writer.writeAll("(");
         try self.left.format(fmt, options, writer);
-        try writer.writeAll(" {s} ", self.operator);
+        try writer.writeAll(self.operator);
         try self.right.format(fmt, options, writer);
         try writer.writeAll(")");
     }

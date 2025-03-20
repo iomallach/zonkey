@@ -32,7 +32,7 @@ fn precedence(tt: tok.TokenType) Precedence {
     };
 }
 
-const Parser = struct {
+pub const Parser = struct {
     tokens: []tok.Token,
     position: usize,
     errors_list: std.ArrayList([]const u8),
@@ -322,7 +322,7 @@ const Parser = struct {
         };
 
         // grouped expression must end with a matching closing ")"
-        if (try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
+        if (!try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
             return error.UnexpectedToken;
         }
 
