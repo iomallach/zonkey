@@ -159,6 +159,7 @@ pub const StatementNode = union(Statement) {
 const Expression = enum {
     Identifier,
     IntegerLiteral,
+    FloatLiteral,
     BooleanLiteral,
     StringLiteral,
     ArrayLiteral,
@@ -202,6 +203,22 @@ pub const IntegerLiteral = struct {
         }
 
         return self.format("", options, writer);
+    }
+};
+
+pub const FloatLiteral = struct {
+    token: tok.Token,
+    value: f64,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: std.io.AnyWriter,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        return writer.writeAll(self.token.literal);
     }
 };
 
@@ -401,6 +418,7 @@ pub const Index = struct {
 pub const ExpressionNode = union(Expression) {
     Identifier: Identifier,
     IntegerLiteral: IntegerLiteral,
+    FloatLiteral: FloatLiteral,
     BooleanLiteral: BooleanLiteral,
     StringLiteral: StringLiteral,
     ArrayLiteral: ArrayLiteral,
