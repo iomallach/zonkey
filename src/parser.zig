@@ -2,8 +2,8 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const tok = @import("token.zig");
 
-const prefixParserFn = fn (*Parser) anyerror!ast.ExpressionNode;
-const infixParserFn = fn (*Parser, ast.ExpressionNode) anyerror!ast.ExpressionNode;
+const prefixParserFn = fn (*Parser) anyerror!ast.AstNode;
+const infixParserFn = fn (*Parser, ast.AstNode) anyerror!ast.AstNode;
 
 const Precedence = enum(u8) {
     LOWEST = 1,
@@ -177,7 +177,7 @@ pub const Parser = struct {
         return &self.errors_list;
     }
 
-    pub fn parse(self: *Parser) !*ast.Program {
+    pub fn parse(self: *Parser) !ast.AstNode {
         var program = ast.Program.init(self.alloc);
 
         while (!self.matchCurrentTokenType(tok.TokenType.EOF)) {
@@ -189,10 +189,12 @@ pub const Parser = struct {
             self.advance();
         }
 
-        return &program;
+        return ast.AstNode{
+            .Program = program,
+        };
     }
 
-    fn parseStatement(self: *Parser) !?ast.StatementNode {
+    fn parseStatement(self: *Parser) !?ast.AstNode {
         return switch (self.currentToken().token_type) {
             tok.TokenType.LET => try self.parseLetStatement(),
             tok.TokenType.RETURN => unreachable,
@@ -200,7 +202,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseLetStatement(self: *Parser) !?ast.StatementNode {
+    fn parseLetStatement(self: *Parser) !?ast.AstNode {
         // already know current token is a let token
         const let_token = self.currentToken();
         // expect next to be an identifier
@@ -218,32 +220,47 @@ pub const Parser = struct {
         const expression = try self.parseExpression(Precedence.LOWEST) orelse {
             return error.NullExpressionParsed;
         };
+        const heap_expression = try self.alloc.create(ast.AstNode);
+        heap_expression.* = expression;
 
         if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
             self.advance();
         }
 
-        return ast.StatementNode.createLetStatement(ast.Identifier{ .token = ident_token, .value = ident_token.literal }, let_token, expression);
+        const heap_identifier = try self.alloc.create(ast.AstNode);
+        heap_identifier.* = ast.AstNode{ .Identifier = ast.Identifier{ .token = ident_token, .value = ident_token.literal } };
+
+        return ast.AstNode{
+            .LetStatement = ast.LetStatement{
+                .token = let_token,
+                .name = heap_identifier,
+                .value = heap_expression,
+            },
+        };
     }
 
-    fn parseExpressionStatement(self: *Parser) !?ast.StatementNode {
+    fn parseExpressionStatement(self: *Parser) !?ast.AstNode {
         const token = self.currentToken();
         //FIXME: this here is still optional
         const expression = try self.parseExpression(Precedence.LOWEST) orelse {
             return error.NullExpressionParsed;
         };
+        const heap_expression = try self.alloc.create(ast.AstNode);
+        heap_expression.* = expression;
 
         if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
             self.advance();
         }
 
-        return ast.StatementNode{ .ExpressionStatement = ast.ExpressionStatement{
-            .token = token,
-            .expression = expression,
-        } };
+        return ast.AstNode{
+            .ExpressionStatement = ast.ExpressionStatement{
+                .token = token,
+                .expression = heap_expression,
+            },
+        };
     }
 
-    fn parseExpression(self: *Parser, prec: Precedence) !?ast.ExpressionNode {
+    fn parseExpression(self: *Parser, prec: Precedence) !?ast.AstNode {
         const prefix_parselet = self.prefix_fns.get(self.currentToken().token_type) orelse {
             try self.parseletError();
             return null;
@@ -263,39 +280,39 @@ pub const Parser = struct {
         return left_expr;
     }
 
-    fn parseIntegerLiteral(self: *Parser) !ast.ExpressionNode {
+    fn parseIntegerLiteral(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.ExpressionNode{ .IntegerLiteral = ast.IntegerLiteral{
+        return ast.AstNode{ .IntegerLiteral = ast.IntegerLiteral{
             .token = token,
             .value = try std.fmt.parseInt(i64, token.literal, 10),
         } };
     }
 
-    fn parseFloatLiteral(self: *Parser) !ast.ExpressionNode {
+    fn parseFloatLiteral(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.ExpressionNode{ .FloatLiteral = ast.FloatLiteral{
+        return ast.AstNode{ .FloatLiteral = ast.FloatLiteral{
             .token = token,
             .value = try std.fmt.parseFloat(f64, token.literal),
         } };
     }
 
-    fn parseIdentifier(self: *Parser) !ast.ExpressionNode {
+    fn parseIdentifier(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.ExpressionNode{ .Identifier = ast.Identifier{
+        return ast.AstNode{ .Identifier = ast.Identifier{
             .token = token,
             .value = token.literal,
         } };
     }
 
-    fn parseStringLiteral(self: *Parser) !ast.ExpressionNode {
+    fn parseStringLiteral(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.ExpressionNode{ .StringLiteral = ast.StringLiteral{
+        return ast.AstNode{ .StringLiteral = ast.StringLiteral{
             .token = token,
             .value = token.literal,
         } };
     }
 
-    fn parsePrefixExpression(self: *Parser) !ast.ExpressionNode {
+    fn parsePrefixExpression(self: *Parser) !ast.AstNode {
         // current token is e.g. - or !
         const token = self.currentToken();
         // move the pointer to the expression
@@ -307,22 +324,22 @@ pub const Parser = struct {
         };
 
         // We have to allocate it on the heap due to recursive structure: ExpressionNode -> Prefix -> ExpressionNode
-        const heapExpressionNode = try self.alloc.create(ast.ExpressionNode);
+        const heapExpressionNode = try self.alloc.create(ast.AstNode);
         heapExpressionNode.* = expression;
 
-        return ast.ExpressionNode{ .Prefix = ast.Prefix{
+        return ast.AstNode{ .Prefix = ast.Prefix{
             .operator = token.literal,
             .token = token,
             .right = heapExpressionNode,
         } };
     }
 
-    fn parseBoolean(self: *Parser) !ast.ExpressionNode {
+    fn parseBoolean(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.ExpressionNode{ .BooleanLiteral = ast.BooleanLiteral{ .token = token, .value = self.matchCurrentTokenType(tok.TokenType.TRUE) } };
+        return ast.AstNode{ .BooleanLiteral = ast.BooleanLiteral{ .token = token, .value = self.matchCurrentTokenType(tok.TokenType.TRUE) } };
     }
 
-    fn parseGroupedExpression(self: *Parser) !ast.ExpressionNode {
+    fn parseGroupedExpression(self: *Parser) !ast.AstNode {
         // skip to the next token
         self.advance();
 
@@ -338,7 +355,7 @@ pub const Parser = struct {
         return grouped_expression;
     }
 
-    fn parseInfixExpression(self: *Parser, left: ast.ExpressionNode) !ast.ExpressionNode {
+    fn parseInfixExpression(self: *Parser, left: ast.AstNode) !ast.AstNode {
         // the operator of the infix expression, e.g. +, -, *, /, etc.
         const token = self.currentToken();
         const cur_precedence = self.currentPrecedence();
@@ -350,12 +367,12 @@ pub const Parser = struct {
         };
 
         // have to allocate on the heap due to recursive structure
-        const heapRightExpressionNode = try self.alloc.create(ast.ExpressionNode);
+        const heapRightExpressionNode = try self.alloc.create(ast.AstNode);
         heapRightExpressionNode.* = expression;
-        const heapLeftExpressionNode = try self.alloc.create(ast.ExpressionNode);
+        const heapLeftExpressionNode = try self.alloc.create(ast.AstNode);
         heapLeftExpressionNode.* = left;
 
-        return ast.ExpressionNode{ .Infix = ast.Infix{
+        return ast.AstNode{ .Infix = ast.Infix{
             .token = token,
             .operator = token.literal,
             .left = heapLeftExpressionNode,
@@ -363,14 +380,14 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseIfExpression(self: *Parser) !ast.ExpressionNode {
+    fn parseIfExpression(self: *Parser) !ast.AstNode {
         const if_token = self.currentToken();
         // advance to the start of the expression
         self.advance();
         const if_expression = try self.parseExpression(Precedence.LOWEST) orelse {
             return error.NullExpressionParsed;
         };
-        const heap_if_expression = try self.alloc.create(ast.ExpressionNode);
+        const heap_if_expression = try self.alloc.create(ast.AstNode);
         heap_if_expression.* = if_expression;
 
         if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
@@ -378,6 +395,8 @@ pub const Parser = struct {
         }
 
         const consequence = try self.parseBlockStatements();
+        const heap_consequence = try self.alloc.create(ast.AstNode);
+        heap_consequence.* = consequence;
 
         if (self.matchPeekTokenType(tok.TokenType.ELSE)) {
             self.advance();
@@ -386,26 +405,28 @@ pub const Parser = struct {
                 return error.UnexpectedToken;
             }
             const alternative = try self.parseBlockStatements();
+            const heap_alternative = try self.alloc.create(ast.AstNode);
+            heap_alternative.* = alternative;
 
-            return ast.ExpressionNode{
+            return ast.AstNode{
                 .If = ast.If{
                     .token = if_token,
                     .condition = heap_if_expression,
-                    .consequence = consequence,
-                    .alternative = alternative,
+                    .consequence = heap_consequence,
+                    .alternative = heap_alternative,
                 },
             };
         }
 
-        return ast.ExpressionNode{ .If = ast.If{
+        return ast.AstNode{ .If = ast.If{
             .token = if_token,
             .condition = heap_if_expression,
-            .consequence = consequence,
+            .consequence = heap_consequence,
             .alternative = null,
         } };
     }
 
-    fn parseBlockStatements(self: *Parser) !ast.BlockStatement {
+    fn parseBlockStatements(self: *Parser) !ast.AstNode {
         const lbrace_token = self.currentToken();
         self.advance();
 
@@ -421,10 +442,12 @@ pub const Parser = struct {
             self.advance();
         }
 
-        return block_statements;
+        return ast.AstNode{
+            .BlockStatement = block_statements,
+        };
     }
 
-    fn parseFunctionLiteral(self: *Parser) !ast.ExpressionNode {
+    fn parseFunctionLiteral(self: *Parser) !ast.AstNode {
         const fn_token = self.currentToken();
 
         if (!try self.matchNextAndAdvance(tok.TokenType.LPAREN)) {
@@ -438,16 +461,18 @@ pub const Parser = struct {
         }
 
         const fn_body_statements = try self.parseBlockStatements();
+        const heap_fn_body_statements = try self.alloc.create(ast.AstNode);
+        heap_fn_body_statements.* = fn_body_statements;
 
-        return ast.ExpressionNode{ .FunctionLiteral = ast.FunctionLiteral{
+        return ast.AstNode{ .FunctionLiteral = ast.FunctionLiteral{
             .token = fn_token,
             .parameters = parameters,
-            .body = fn_body_statements,
+            .body = heap_fn_body_statements,
         } };
     }
 
-    fn parseFunctionParameters(self: *Parser) !std.ArrayList(ast.Identifier) {
-        var parameters = std.ArrayList(ast.Identifier).init(self.alloc);
+    fn parseFunctionParameters(self: *Parser) !std.ArrayList(ast.AstNode) {
+        var parameters = std.ArrayList(ast.AstNode).init(self.alloc);
         if (self.matchPeekTokenType(tok.TokenType.RPAREN)) {
             self.advance();
             return parameters;
@@ -457,7 +482,7 @@ pub const Parser = struct {
         }
 
         var ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal };
-        try parameters.append(ident);
+        try parameters.append(ast.AstNode{ .Identifier = ident });
 
         while (self.matchPeekTokenType(tok.TokenType.COMMA)) {
             self.advance();
@@ -466,7 +491,7 @@ pub const Parser = struct {
             }
 
             ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal };
-            try parameters.append(ident);
+            try parameters.append(ast.AstNode{ .Identifier = ident });
         }
 
         if (!try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
@@ -476,18 +501,18 @@ pub const Parser = struct {
         return parameters;
     }
 
-    fn parseArrayLiteral(self: *Parser) !ast.ExpressionNode {
+    fn parseArrayLiteral(self: *Parser) !ast.AstNode {
         const lbracket_token = self.currentToken();
         const elements = try self.parseExpressionList(tok.TokenType.RBRACKET);
 
-        return ast.ExpressionNode{ .ArrayLiteral = ast.ArrayLiteral{
+        return ast.AstNode{ .ArrayLiteral = ast.ArrayLiteral{
             .token = lbracket_token,
             .elements = elements,
         } };
     }
 
-    fn parseExpressionList(self: *Parser, end: tok.TokenType) !std.ArrayList(ast.ExpressionNode) {
-        var expressions = std.ArrayList(ast.ExpressionNode).init(self.alloc);
+    fn parseExpressionList(self: *Parser, end: tok.TokenType) !std.ArrayList(ast.AstNode) {
+        var expressions = std.ArrayList(ast.AstNode).init(self.alloc);
         if (self.matchPeekTokenType(end)) {
             self.advance();
             return expressions;
@@ -515,21 +540,21 @@ pub const Parser = struct {
         return expressions;
     }
 
-    fn parseFunctionCall(self: *Parser, function_ident: ast.ExpressionNode) !ast.ExpressionNode {
+    fn parseFunctionCall(self: *Parser, function_ident: ast.AstNode) !ast.AstNode {
         const lparen_token = self.currentToken();
         const function_arguments = try self.parseExpressionList(tok.TokenType.RPAREN);
 
-        const heap_func_ident = try self.alloc.create(ast.ExpressionNode);
+        const heap_func_ident = try self.alloc.create(ast.AstNode);
         heap_func_ident.* = function_ident;
 
-        return ast.ExpressionNode{ .FunctionCall = ast.FunctionCall{
+        return ast.AstNode{ .FunctionCall = ast.FunctionCall{
             .token = lparen_token,
             .function = heap_func_ident,
             .arguments = function_arguments,
         } };
     }
 
-    fn parseIndexExpression(self: *Parser, indexed_exp: ast.ExpressionNode) !ast.ExpressionNode {
+    fn parseIndexExpression(self: *Parser, indexed_exp: ast.AstNode) !ast.AstNode {
         const lbracket_token = self.currentToken();
         if (self.matchPeekTokenType(tok.TokenType.RBRACKET)) {
             return error.UnexpectedToken;
@@ -544,13 +569,13 @@ pub const Parser = struct {
             return error.UnexpectedToken;
         }
 
-        const heap_indexed_exp = try self.alloc.create(ast.ExpressionNode);
+        const heap_indexed_exp = try self.alloc.create(ast.AstNode);
         heap_indexed_exp.* = indexed_exp;
 
-        const heap_indexing_exp = try self.alloc.create(ast.ExpressionNode);
+        const heap_indexing_exp = try self.alloc.create(ast.AstNode);
         heap_indexing_exp.* = indexing_expression;
 
-        return ast.ExpressionNode{ .Index = ast.Index{
+        return ast.AstNode{ .Index = ast.Index{
             .token = lbracket_token,
             .indexed_expression = heap_indexed_exp,
             .expression = heap_indexing_exp,
@@ -573,12 +598,12 @@ const TestHelpers = struct {
         return lexed_tokens;
     }
 
-    pub fn test_let_statement(stmt: *const ast.StatementNode, name: []const u8) !void {
+    pub fn test_let_statement(stmt: *const ast.AstNode, name: []const u8) !void {
         switch (stmt.*) {
-            ast.Statement.LetStatement => |ls| {
+            .LetStatement => |ls| {
                 try std.testing.expectEqualStrings(ls.token.literal, "let");
-                try std.testing.expectEqualStrings(ls.name.value, name);
-                try std.testing.expectEqualStrings(ls.name.token.literal, name);
+                try std.testing.expectEqualStrings(ls.name.Identifier.value, name);
+                try std.testing.expectEqualStrings(ls.name.Identifier.token.literal, name);
             },
             else => std.debug.panic("Expected let statement, got {s}", .{@tagName(stmt.*)}),
         }
@@ -594,7 +619,7 @@ const TestHelpers = struct {
         }
     }
 
-    pub fn test_literal_expression(expression: *const ast.ExpressionNode, expected: anytype) !void {
+    pub fn test_literal_expression(expression: *const ast.AstNode, expected: anytype) !void {
         switch (@TypeOf(expected)) {
             i64, comptime_int => return TestHelpers.test_integer_literal(expression, @as(i64, expected)),
             f64, comptime_float => return TestHelpers.test_float_literal(expression, @as(f64, expected)),
@@ -620,27 +645,27 @@ const TestHelpers = struct {
         try TestHelpers.test_literal_expression(expression.right, right);
     }
 
-    pub fn test_integer_literal(expression: *const ast.ExpressionNode, expected: i64) !void {
+    pub fn test_integer_literal(expression: *const ast.AstNode, expected: i64) !void {
         try std.testing.expect(expression.* == .IntegerLiteral);
         try std.testing.expectEqual(expression.*.IntegerLiteral.value, expected);
     }
 
-    pub fn test_float_literal(expression: *const ast.ExpressionNode, expected: f64) !void {
+    pub fn test_float_literal(expression: *const ast.AstNode, expected: f64) !void {
         try std.testing.expect(expression.* == .FloatLiteral);
         try std.testing.expectEqual(expression.*.FloatLiteral.value, expected);
     }
 
-    pub fn test_string_literal(expression: *const ast.ExpressionNode, expected: []const u8) !void {
+    pub fn test_string_literal(expression: *const ast.AstNode, expected: []const u8) !void {
         try std.testing.expect(expression.* == .StringLiteral);
         try std.testing.expectEqualStrings(expression.*.StringLiteral.value, expected);
     }
 
-    pub fn test_boolean_literal(expression: *const ast.ExpressionNode, expected: bool) !void {
+    pub fn test_boolean_literal(expression: *const ast.AstNode, expected: bool) !void {
         try std.testing.expect(expression.* == .BooleanLiteral);
         try std.testing.expectEqual(expected, expression.*.BooleanLiteral.value);
     }
 
-    pub fn test_identifier(expression: *const ast.ExpressionNode, expected: []const u8) !void {
+    pub fn test_identifier(expression: *const ast.AstNode, expected: []const u8) !void {
         try std.testing.expect(expression.* == .Identifier);
         try std.testing.expectEqualStrings(expression.*.Identifier.value, expected);
         try std.testing.expectEqualStrings(expression.*.Identifier.token.literal, expected);
@@ -680,10 +705,10 @@ test "Test parse let statement" {
             TestHelpers.test_parse_errors(&parser) catch {};
             return err;
         };
-        try std.testing.expectEqual(1, program.program.items.len);
-        try TestHelpers.test_let_statement(&program.program.items[0], test_case.expected_identifier);
+        try std.testing.expectEqual(1, program.Program.program.items.len);
+        try TestHelpers.test_let_statement(&program.Program.program.items[0], test_case.expected_identifier);
 
-        const expression = &program.program.items[0].LetStatement.value;
+        const expression = program.Program.program.items[0].LetStatement.value;
         switch (test_case.expected_value) {
             .integer => |v| try TestHelpers.test_literal_expression(expression, v),
             .string => |v| try TestHelpers.test_literal_expression(expression, v),
@@ -709,10 +734,10 @@ test "Test parse identifier" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const expression = program.program.items[0].ExpressionStatement.expression;
-    try TestHelpers.test_literal_expression(&expression, expected);
+    const expression = program.Program.program.items[0].ExpressionStatement.expression;
+    try TestHelpers.test_literal_expression(expression, expected);
 }
 
 test "Test parse string literals" {
@@ -733,10 +758,10 @@ test "Test parse string literals" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const expression = program.program.items[0].ExpressionStatement.expression;
-    try TestHelpers.test_literal_expression(&expression, expected);
+    const expression = program.Program.program.items[0].ExpressionStatement.expression;
+    try TestHelpers.test_literal_expression(expression, expected);
 }
 
 test "Parse numeric expressions" {
@@ -768,11 +793,11 @@ test "Parse numeric expressions" {
             TestHelpers.test_parse_errors(&parser) catch {};
             return err;
         };
-        try std.testing.expectEqual(1, program.program.items.len);
+        try std.testing.expectEqual(1, program.Program.program.items.len);
 
-        const expression = program.program.items[0].ExpressionStatement.expression;
+        const expression = program.Program.program.items[0].ExpressionStatement.expression;
         switch (test_case.expected) {
-            inline else => |v| try TestHelpers.test_literal_expression(&expression, v),
+            inline else => |v| try TestHelpers.test_literal_expression(expression, v),
         }
     }
 }
@@ -810,8 +835,8 @@ test "Parse prefix expressions" {
             return err;
         };
 
-        const expression = &program.program.items[0].ExpressionStatement.expression.Prefix;
-        try std.testing.expectEqualStrings(expression.*.operator, test_case.operator);
+        const expression = program.Program.program.items[0].ExpressionStatement.expression.Prefix;
+        try std.testing.expectEqualStrings(expression.operator, test_case.operator);
         switch (test_case.value) {
             inline else => |v| try TestHelpers.test_literal_expression(expression.right, v),
         }
@@ -844,7 +869,7 @@ test "Parse boolean expression" {
             return err;
         };
 
-        const expression = &program.program.items[0].ExpressionStatement.expression;
+        const expression = program.Program.program.items[0].ExpressionStatement.expression;
         try TestHelpers.test_literal_expression(expression, test_case.value);
     }
 }
@@ -891,13 +916,13 @@ test "Parse infix expression" {
             TestHelpers.test_parse_errors(&parser) catch {};
             return err;
         };
-        try std.testing.expectEqual(1, program.program.items.len);
+        try std.testing.expectEqual(1, program.Program.program.items.len);
 
-        const expression = &program.program.items[0].ExpressionStatement.expression.Infix;
+        const expression = program.Program.program.items[0].ExpressionStatement.expression.Infix;
 
         switch (test_case.left) {
             inline else => |l| switch (test_case.right) {
-                inline else => |r| try TestHelpers.test_infix_expression(expression, l, r, test_case.operator),
+                inline else => |r| try TestHelpers.test_infix_expression(&expression, l, r, test_case.operator),
             },
         }
     }
@@ -922,14 +947,14 @@ test "Parse if expressions" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const expression = &program.program.items[0].ExpressionStatement.expression.If;
+    const expression = program.Program.program.items[0].ExpressionStatement.expression.If;
     try TestHelpers.test_infix_expression(&expression.condition.Infix, left_exp, right_exp, "<");
-    try std.testing.expectEqual(1, expression.consequence.statements.items.len);
+    try std.testing.expectEqual(1, expression.consequence.BlockStatement.statements.items.len);
 
-    const consequence = &expression.consequence.statements.items[0].ExpressionStatement;
-    try TestHelpers.test_identifier(&consequence.expression, "x");
+    const consequence = expression.consequence.BlockStatement.statements.items[0].ExpressionStatement;
+    try TestHelpers.test_identifier(consequence.expression, "x");
     try std.testing.expect(expression.alternative == null);
 }
 
@@ -952,16 +977,16 @@ test "Parse function literal" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const function_literal = &program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
+    const function_literal = &program.Program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
 
     try std.testing.expectEqual(2, function_literal.parameters.items.len);
     //FIXME: might actually have to store an ExpressionNode in the parameters list
-    try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[0] }, left_exp);
-    try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[1] }, right_exp);
-    try std.testing.expectEqual(1, function_literal.body.statements.items.len);
-    try TestHelpers.test_infix_expression(&function_literal.body.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, "+");
+    try TestHelpers.test_literal_expression(&function_literal.parameters.items[0], left_exp);
+    try TestHelpers.test_literal_expression(&function_literal.parameters.items[1], right_exp);
+    try std.testing.expectEqual(1, function_literal.body.BlockStatement.statements.items.len);
+    try TestHelpers.test_infix_expression(&function_literal.body.BlockStatement.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, "+");
 }
 
 test "Parse function parameters" {
@@ -995,13 +1020,13 @@ test "Parse function parameters" {
             TestHelpers.test_parse_errors(&parser) catch {};
             return err;
         };
-        try std.testing.expectEqual(1, program.program.items.len);
+        try std.testing.expectEqual(1, program.Program.program.items.len);
 
-        const function_literal = &program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
+        const function_literal = program.Program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
         try std.testing.expectEqual(test_case.parameters.len, function_literal.parameters.items.len);
 
         for (test_case.parameters, 0..) |param, i| {
-            try TestHelpers.test_literal_expression(&ast.ExpressionNode{ .Identifier = function_literal.parameters.items[i] }, param);
+            try TestHelpers.test_literal_expression(&function_literal.parameters.items[i], param);
         }
     }
 }
@@ -1023,9 +1048,9 @@ test "Parse array literals" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const array_literal = &program.program.items[0].ExpressionStatement.expression.ArrayLiteral;
+    const array_literal = &program.Program.program.items[0].ExpressionStatement.expression.ArrayLiteral;
     try std.testing.expectEqual(3, array_literal.elements.items.len);
     try TestHelpers.test_integer_literal(&array_literal.elements.items[0], 1);
 }
@@ -1047,9 +1072,9 @@ test "Parse function call" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const function_call = &program.program.items[0].ExpressionStatement.expression.FunctionCall;
+    const function_call = &program.Program.program.items[0].ExpressionStatement.expression.FunctionCall;
     try TestHelpers.test_identifier(function_call.function, "add");
     try std.testing.expectEqual(3, function_call.arguments.items.len);
     const function_call_args = function_call.arguments.items;
@@ -1075,9 +1100,9 @@ test "Parse index expression" {
         TestHelpers.test_parse_errors(&parser) catch {};
         return err;
     };
-    try std.testing.expectEqual(1, program.program.items.len);
+    try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const index_expression = &program.program.items[0].ExpressionStatement.expression.Index;
+    const index_expression = &program.Program.program.items[0].ExpressionStatement.expression.Index;
     try TestHelpers.test_identifier(index_expression.indexed_expression, "myArray");
     try TestHelpers.test_infix_expression(&index_expression.expression.Infix, 1, 1, "+");
 }
