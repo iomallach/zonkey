@@ -113,6 +113,7 @@ const AstNodeKind = enum {
     ReturnStatement,
     ExpressionStatement,
     BlockStatement,
+    WhileLoopStatement,
     // Expressions
     Identifier,
     IntegerLiteral,
@@ -135,6 +136,7 @@ pub const AstNode = union(AstNodeKind) {
     ReturnStatement: ReturnStatement,
     ExpressionStatement: ExpressionStatement,
     BlockStatement: BlockStatement,
+    WhileLoopStatement: WhileLoopStatement,
     Identifier: Identifier,
     IntegerLiteral: IntegerLiteral,
     FloatLiteral: FloatLiteral,
@@ -260,6 +262,12 @@ pub const BlockStatement = struct {
         }
         try writer.writeAll("\n}");
     }
+};
+
+pub const WhileLoopStatement = struct {
+    token: tok.Token,
+    condition: *AstNode, // Expression
+    statements: *AstNode, // BlockStatement
 };
 
 pub const Identifier = struct {

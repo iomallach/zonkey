@@ -200,6 +200,7 @@ pub const Parser = struct {
             tok.TokenType.LET => try self.parseLetStatement(),
             tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
             tok.TokenType.RETURN => try self.parseReturnStatement(),
+            tok.TokenType.WHILE => try self.parseWhileLoopStatement(),
             else => try self.parseExpressionStatement(),
         };
     }
@@ -687,6 +688,31 @@ pub const Parser = struct {
     fn parseTypeAnnotation(self: *Parser) ast.Type {
         const token = self.currentToken();
         return ast.Type.fromLiteral(token.literal);
+    }
+
+    fn parseWhileLoopStatement(self: *Parser) !ast.AstNode {
+        const while_token = self.currentToken();
+        self.advance();
+
+        const condition_expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+        const heap_condition_expression = try self.alloc.create(ast.AstNode);
+        heap_condition_expression.* = condition_expression;
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
+            return error.UnexpectedToken;
+        }
+
+        const block_statements = try self.parseBlockStatements();
+        const heap_block_statements = try self.alloc.create(ast.AstNode);
+        heap_block_statements.* = block_statements;
+
+        return ast.AstNode{ .WhileLoopStatement = ast.WhileLoopStatement{
+            .token = while_token,
+            .condition = heap_condition_expression,
+            .statements = heap_block_statements,
+        } };
     }
 };
 
@@ -1269,5 +1295,40 @@ test "Parse return statement" {
         switch (test_case.expected_value) {
             inline else => |v| try TestHelpers.test_literal_expression(program.Program.program.items[0].ReturnStatement.return_value, v),
         }
+    }
+}
+
+test "Parse while loop statement" {
+    const TestCase = struct {
+        input: []const u8,
+        left_cond_exp: []const u8,
+        right_cond_exp: []const u8,
+        n_statements: usize,
+    };
+    const tests = [_]TestCase{
+        .{ .input = "while x<y { let a: int = 1; }", .left_cond_exp = "x", .right_cond_exp = "y", .n_statements = 1 },
+        .{ .input = "while x>y { let a: int = 2; let b: int = 3; }", .left_cond_exp = "x", .right_cond_exp = "y", .n_statements = 2 },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+        try std.testing.expectEqual(1, program.Program.program.items.len);
+        const statement = program.Program.program.items[0].WhileLoopStatement;
+        try TestHelpers.test_literal_expression(statement.condition.Infix.left, test_case.left_cond_exp);
+        try TestHelpers.test_literal_expression(statement.condition.Infix.right, test_case.right_cond_exp);
+        try std.testing.expectEqual(test_case.n_statements, statement.statements.BlockStatement.statements.items.len);
     }
 }

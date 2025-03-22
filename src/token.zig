@@ -40,6 +40,7 @@ pub const TokenType = enum {
     IF,
     ELSE,
     RETURN,
+    WHILE,
 
     // Bool
     TRUE,
@@ -75,6 +76,7 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "string", TokenType.Type },
     .{ "bool", TokenType.Type },
     .{ "void", TokenType.Type },
+    .{ "while", TokenType.WHILE },
 });
 
 pub fn map_identifier(keyword: []const u8) TokenType {
