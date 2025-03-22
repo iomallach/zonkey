@@ -1,6 +1,80 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
+pub const UnaryOp = enum {
+    Negation,
+    Minus,
+
+    pub fn fromString(str: []const u8) UnaryOp {
+        if (std.mem.eql(u8, str, "-")) {
+            return UnaryOp.Minus;
+        } else if (std.mem.eql(u8, str, "!")) {
+            return UnaryOp.Negation;
+        }
+        unreachable;
+    }
+
+    pub fn toString(self: UnaryOp) []const u8 {
+        return switch (self) {
+            .Negation => "!",
+            .Minus => "-",
+        };
+    }
+};
+
+pub const BinaryOp = enum {
+    Plus,
+    Minus,
+    EqualEqual,
+    NotEqual,
+    Greater,
+    Less,
+    GreaterEqual,
+    LessEqual,
+    Multiply,
+    Divide,
+
+    pub fn fromString(str: []const u8) BinaryOp {
+        if (std.mem.eql(u8, str, "+")) {
+            return BinaryOp.Plus;
+        } else if (std.mem.eql(u8, str, "-")) {
+            return BinaryOp.Minus;
+        } else if (std.mem.eql(u8, str, "==")) {
+            return BinaryOp.EqualEqual;
+        } else if (std.mem.eql(u8, str, "!=")) {
+            return BinaryOp.NotEqual;
+        } else if (std.mem.eql(u8, str, ">")) {
+            return BinaryOp.Greater;
+        } else if (std.mem.eql(u8, str, "<")) {
+            return BinaryOp.Less;
+        } else if (std.mem.eql(u8, str, ">=")) {
+            return BinaryOp.GreaterEqual;
+        } else if (std.mem.eql(u8, str, "<=")) {
+            return BinaryOp.LessEqual;
+        } else if (std.mem.eql(u8, str, "*")) {
+            return BinaryOp.Multiply;
+        } else if (std.mem.eql(u8, str, "/")) {
+            return BinaryOp.Divide;
+        }
+        unreachable;
+    }
+
+    pub fn toString(self: BinaryOp) []const u8 {
+        return switch (self) {
+            .Plus => "+",
+            .Minus => "-",
+            .EqualEqual => "==",
+            .NotEqual => "!=",
+            .Greater => ">",
+            .Less => "<",
+            .GreaterEqual => ">=",
+            .LessEqual => "<=",
+            .Multiply => "*",
+            .Divide => "/",
+        };
+    }
+};
+
 pub const Type = enum {
     Bool,
     Integer,
@@ -358,7 +432,7 @@ pub const FunctionCall = struct {
 
 pub const Prefix = struct {
     token: tok.Token,
-    operator: []const u8,
+    operator: UnaryOp,
     right: *AstNode,
 
     pub fn format(
@@ -376,7 +450,7 @@ pub const Prefix = struct {
 
 pub const Infix = struct {
     token: tok.Token,
-    operator: []const u8,
+    operator: BinaryOp,
     left: *AstNode,
     right: *AstNode,
 

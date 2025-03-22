@@ -359,7 +359,7 @@ pub const Parser = struct {
         heapExpressionNode.* = expression;
 
         return ast.AstNode{ .Prefix = ast.Prefix{
-            .operator = token.literal,
+            .operator = ast.UnaryOp.fromString(token.literal),
             .token = token,
             .right = heapExpressionNode,
         } };
@@ -405,7 +405,7 @@ pub const Parser = struct {
 
         return ast.AstNode{ .Infix = ast.Infix{
             .token = token,
-            .operator = token.literal,
+            .operator = ast.BinaryOp.fromString(token.literal),
             .left = heapLeftExpressionNode,
             .right = heapRightExpressionNode,
         } };
@@ -747,8 +747,8 @@ const TestHelpers = struct {
         }
     }
 
-    pub fn test_infix_expression(expression: *const ast.Infix, left: anytype, right: anytype, operator: []const u8) !void {
-        try std.testing.expectEqualStrings(operator, expression.operator);
+    pub fn test_infix_expression(expression: *const ast.Infix, left: anytype, right: anytype, operator: ast.BinaryOp) !void {
+        try std.testing.expectEqualStrings(operator.toString(), expression.operator.toString());
         try TestHelpers.test_literal_expression(expression.left, left);
         try TestHelpers.test_literal_expression(expression.right, right);
     }
@@ -933,14 +933,14 @@ test "Parse prefix expressions" {
     };
     const TestCase = struct {
         input: []const u8,
-        operator: []const u8,
+        operator: ast.UnaryOp,
         value: Value,
     };
     const tests = [_]TestCase{
-        .{ .input = "!5", .operator = "!", .value = Value{ .integer = 5 } },
-        .{ .input = "-10", .operator = "-", .value = Value{ .integer = 10 } },
-        .{ .input = "!true", .operator = "!", .value = Value{ .boolean = true } },
-        .{ .input = "!false", .operator = "!", .value = Value{ .boolean = false } },
+        .{ .input = "!5", .operator = ast.UnaryOp.Negation, .value = Value{ .integer = 5 } },
+        .{ .input = "-10", .operator = ast.UnaryOp.Minus, .value = Value{ .integer = 10 } },
+        .{ .input = "!true", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = true } },
+        .{ .input = "!false", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = false } },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -960,7 +960,7 @@ test "Parse prefix expressions" {
         };
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression.Prefix;
-        try std.testing.expectEqualStrings(expression.operator, test_case.operator);
+        try std.testing.expectEqualStrings(expression.operator.toString(), test_case.operator.toString());
         switch (test_case.value) {
             inline else => |v| try TestHelpers.test_literal_expression(expression.right, v),
         }
@@ -1005,25 +1005,25 @@ test "Parse infix expression" {
     };
     const TestCase = struct {
         input: []const u8,
-        operator: []const u8,
+        operator: ast.BinaryOp,
         left: Value,
         right: Value,
     };
     const tests = [_]TestCase{
-        .{ .input = "5 + 5;", .operator = "+", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 - 5;", .operator = "-", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 * 5;", .operator = "*", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 / 5;", .operator = "/", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 > 5;", .operator = ">", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 < 5;", .operator = "<", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 == 5;", .operator = "==", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "5 != 5;", .operator = "!=", .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
-        .{ .input = "true == true;", .operator = "==", .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },
-        .{ .input = "true != true;", .operator = "!=", .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },
-        .{ .input = "true == false;", .operator = "==", .left = Value{ .boolean = true }, .right = Value{ .boolean = false } },
-        .{ .input = "true != false;", .operator = "!=", .left = Value{ .boolean = true }, .right = Value{ .boolean = false } },
-        .{ .input = "false == false;", .operator = "==", .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
-        .{ .input = "false != false;", .operator = "!=", .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
+        .{ .input = "5 + 5;", .operator = ast.BinaryOp.Plus, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 - 5;", .operator = ast.BinaryOp.Minus, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 * 5;", .operator = ast.BinaryOp.Multiply, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 / 5;", .operator = ast.BinaryOp.Divide, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 > 5;", .operator = ast.BinaryOp.Greater, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 < 5;", .operator = ast.BinaryOp.Less, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 == 5;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 != 5;", .operator = ast.BinaryOp.NotEqual, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "true == true;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },
+        .{ .input = "true != true;", .operator = ast.BinaryOp.NotEqual, .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },
+        .{ .input = "true == false;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .boolean = true }, .right = Value{ .boolean = false } },
+        .{ .input = "true != false;", .operator = ast.BinaryOp.NotEqual, .left = Value{ .boolean = true }, .right = Value{ .boolean = false } },
+        .{ .input = "false == false;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
+        .{ .input = "false != false;", .operator = ast.BinaryOp.NotEqual, .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
     };
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -1074,7 +1074,7 @@ test "Parse if expressions" {
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression.If;
-    try TestHelpers.test_infix_expression(&expression.condition.Infix, left_exp, right_exp, "<");
+    try TestHelpers.test_infix_expression(&expression.condition.Infix, left_exp, right_exp, ast.BinaryOp.Less);
     try std.testing.expectEqual(1, expression.consequence.BlockStatement.statements.items.len);
 
     const consequence = expression.consequence.BlockStatement.statements.items[0].ExpressionStatement;
@@ -1111,7 +1111,7 @@ test "Parse function literal" {
     try TestHelpers.test_literal_expression(function_literal.parameters.items[0].FunctionParameter.ident, left_exp);
     try TestHelpers.test_literal_expression(function_literal.parameters.items[1].FunctionParameter.ident, right_exp);
     try std.testing.expectEqual(1, function_literal.body.BlockStatement.statements.items.len);
-    try TestHelpers.test_infix_expression(&function_literal.body.BlockStatement.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, "+");
+    try TestHelpers.test_infix_expression(&function_literal.body.BlockStatement.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, ast.BinaryOp.Plus);
 }
 
 //FIXME: functions do not have types yet, commenting out
@@ -1205,8 +1205,8 @@ test "Parse function call" {
     try std.testing.expectEqual(3, function_call.arguments.items.len);
     const function_call_args = function_call.arguments.items;
     try TestHelpers.test_literal_expression(&function_call_args[0], 1);
-    try TestHelpers.test_infix_expression(&function_call_args[1].Infix, 2, 3, "*");
-    try TestHelpers.test_infix_expression(&function_call_args[2].Infix, 4, 5, "+");
+    try TestHelpers.test_infix_expression(&function_call_args[1].Infix, 2, 3, ast.BinaryOp.Multiply);
+    try TestHelpers.test_infix_expression(&function_call_args[2].Infix, 4, 5, ast.BinaryOp.Plus);
 }
 
 test "Parse index expression" {
@@ -1230,7 +1230,7 @@ test "Parse index expression" {
 
     const index_expression = &program.Program.program.items[0].ExpressionStatement.expression.Index;
     try TestHelpers.test_identifier(index_expression.indexed_expression, "myArray");
-    try TestHelpers.test_infix_expression(&index_expression.expression.Infix, 1, 1, "+");
+    try TestHelpers.test_infix_expression(&index_expression.expression.Infix, 1, 1, ast.BinaryOp.Plus);
 }
 
 test "Parse return statement" {
