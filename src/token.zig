@@ -9,6 +9,8 @@ pub const TokenType = enum {
     INT,
     FLOAT,
 
+    Type,
+
     // Operators
     EQUAL,
     PLUS,
@@ -23,6 +25,7 @@ pub const TokenType = enum {
 
     COMMA,
     SEMICOLON,
+    COLON,
 
     LPAREN,
     RPAREN,
@@ -67,6 +70,10 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "return", TokenType.RETURN },
     .{ "true", TokenType.TRUE },
     .{ "false", TokenType.FALSE },
+    .{ "int", TokenType.Type },
+    .{ "float", TokenType.Type },
+    .{ "string", TokenType.Type },
+    .{ "bool", TokenType.Type },
 });
 
 pub fn map_identifier(keyword: []const u8) TokenType {

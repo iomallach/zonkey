@@ -1,6 +1,13 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
+const Type = enum {
+    Bool,
+    Integer,
+    Float,
+    String,
+};
+
 const AstNodeKind = enum {
     Program,
     // Statements
@@ -78,6 +85,7 @@ pub const LetStatement = struct {
     token: tok.Token,
     name: *AstNode, // Identifier
     value: *AstNode, // ExpressionNode
+    ident_type: Type,
 
     pub fn format(
         self: @This(),
@@ -157,6 +165,7 @@ pub const BlockStatement = struct {
 pub const Identifier = struct {
     token: tok.Token,
     value: []const u8,
+    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -174,6 +183,7 @@ pub const Identifier = struct {
 pub const IntegerLiteral = struct {
     token: tok.Token,
     value: i64,
+    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -192,6 +202,7 @@ pub const IntegerLiteral = struct {
 pub const FloatLiteral = struct {
     token: tok.Token,
     value: f64,
+    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -208,6 +219,7 @@ pub const FloatLiteral = struct {
 pub const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
+    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -226,6 +238,7 @@ pub const BooleanLiteral = struct {
 pub const StringLiteral = struct {
     token: tok.Token,
     value: []const u8,
+    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -272,6 +285,7 @@ pub const FunctionLiteral = struct {
     parameters: std.ArrayList(AstNode),
     body: *AstNode,
     name: ?[]const u8,
+    return_type: Type,
 
     pub fn format(
         self: @This(),

@@ -95,6 +95,10 @@ pub const Lexer = struct {
                     token = tok.Token{ .token_type = tok.TokenType.EQUAL, .literal = self.slice_literal(1), .span = span };
                 }
             },
+            ':' => {
+                span = self.token_span(self.position, self.position);
+                token = tok.Token{ .token_type = tok.TokenType.COLON, .literal = self.slice_literal(1), .span = span };
+            },
             ';' => {
                 span = self.token_span(self.position, self.position);
                 token = tok.Token{ .token_type = tok.TokenType.SEMICOLON, .literal = self.slice_literal(1), .span = span };

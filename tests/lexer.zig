@@ -10,7 +10,7 @@ const TestCase = struct {
 };
 
 test "Test symbols" {
-    const input = "[]=]==;(),+{}!=!/*<>-";
+    const input = "[]=]==;(),+{}!=!/*<>-:";
 
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
@@ -36,6 +36,7 @@ test "Test symbols" {
         .{ .expected_type = TokenType.LESS, .expected_literal = "<" },
         .{ .expected_type = TokenType.GREATER, .expected_literal = ">" },
         .{ .expected_type = TokenType.MINUS, .expected_literal = "-" },
+        .{ .expected_type = TokenType.COLON, .expected_literal = ":" },
     };
 
     for (tests) |test_case| {
@@ -80,7 +81,7 @@ test "Test string literals error" {
 }
 
 test "Test keywords" {
-    const input = "fn let if else return true false";
+    const input = "fn let if else return true false int float string bool";
     const tests = [_]TestCase{
         .{ .expected_type = TokenType.FUNCTION, .expected_literal = "fn" },
         .{ .expected_type = TokenType.LET, .expected_literal = "let" },
@@ -89,6 +90,10 @@ test "Test keywords" {
         .{ .expected_type = TokenType.RETURN, .expected_literal = "return" },
         .{ .expected_type = TokenType.TRUE, .expected_literal = "true" },
         .{ .expected_type = TokenType.FALSE, .expected_literal = "false" },
+        .{ .expected_type = TokenType.Type, .expected_literal = "int" },
+        .{ .expected_type = TokenType.Type, .expected_literal = "float" },
+        .{ .expected_type = TokenType.Type, .expected_literal = "string" },
+        .{ .expected_type = TokenType.Type, .expected_literal = "bool" },
     };
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);
