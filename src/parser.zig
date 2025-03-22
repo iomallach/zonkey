@@ -194,10 +194,11 @@ pub const Parser = struct {
         };
     }
 
-    fn parseStatement(self: *Parser) !?ast.AstNode {
+    fn parseStatement(self: *Parser) anyerror!?ast.AstNode {
         return switch (self.currentToken().token_type) {
             tok.TokenType.LET => try self.parseLetStatement(),
-            tok.TokenType.RETURN => unreachable,
+            tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
+            tok.TokenType.RETURN => try self.parseReturnStatement(),
             else => try self.parseExpressionStatement(),
         };
     }
@@ -237,6 +238,26 @@ pub const Parser = struct {
                 .value = heap_expression,
             },
         };
+    }
+
+    fn parseReturnStatement(self: *Parser) !ast.AstNode {
+        const return_token = self.currentToken();
+        self.advance();
+
+        const return_expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+        const heap_return_expression = try self.alloc.create(ast.AstNode);
+        heap_return_expression.* = return_expression;
+
+        if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
+            self.advance();
+        }
+
+        return ast.AstNode{ .ReturnStatement = ast.ReturnStatement{
+            .token = return_token,
+            .return_value = heap_return_expression,
+        } };
     }
 
     fn parseExpressionStatement(self: *Parser) !?ast.AstNode {
@@ -447,6 +468,35 @@ pub const Parser = struct {
         };
     }
 
+    fn parseFunctionDeclaration(self: *Parser) !ast.AstNode {
+        const fn_token = self.currentToken();
+        if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
+            return error.UnexpectedToken;
+        }
+        const fn_ident = self.currentToken();
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.LPAREN)) {
+            return error.UnexpectedToken;
+        }
+
+        const parameters = try self.parseFunctionParameters();
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
+            return error.UnexpectedToken;
+        }
+
+        const fn_body_statements = try self.parseBlockStatements();
+        const heap_fn_body_statements = try self.alloc.create(ast.AstNode);
+        heap_fn_body_statements.* = fn_body_statements;
+
+        return ast.AstNode{ .FunctionLiteral = ast.FunctionLiteral{
+            .token = fn_token,
+            .parameters = parameters,
+            .body = heap_fn_body_statements,
+            .name = fn_ident.literal,
+        } };
+    }
+
     fn parseFunctionLiteral(self: *Parser) !ast.AstNode {
         const fn_token = self.currentToken();
 
@@ -468,6 +518,7 @@ pub const Parser = struct {
             .token = fn_token,
             .parameters = parameters,
             .body = heap_fn_body_statements,
+            .name = null,
         } };
     }
 
@@ -963,9 +1014,10 @@ test "Parse function literal" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input = "fn(x, y) { x+y; }";
+    const input = "fn foo(x, y) { x+y; }";
     const left_exp: []const u8 = "x";
     const right_exp: []const u8 = "y";
+    const fn_name: []const u8 = "foo";
 
     var lexer = lex.Lexer.init(input, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
@@ -979,10 +1031,10 @@ test "Parse function literal" {
     };
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
-    const function_literal = &program.Program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
+    const function_literal = program.Program.program.items[0].FunctionLiteral;
 
     try std.testing.expectEqual(2, function_literal.parameters.items.len);
-    //FIXME: might actually have to store an ExpressionNode in the parameters list
+    try std.testing.expectEqualStrings(fn_name, function_literal.name.?);
     try TestHelpers.test_literal_expression(&function_literal.parameters.items[0], left_exp);
     try TestHelpers.test_literal_expression(&function_literal.parameters.items[1], right_exp);
     try std.testing.expectEqual(1, function_literal.body.BlockStatement.statements.items.len);
@@ -1000,9 +1052,9 @@ test "Parse function parameters" {
         }
     };
     const tests = [_]TestCase{
-        .{ .input = "fn(){};", .parameters = &[_][]const u8{} },
-        .{ .input = "fn(x){};", .parameters = TestCase.strSlice(&.{"x"}) },
-        .{ .input = "fn(x, y){};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
+        .{ .input = "let foo = fn(){};", .parameters = &[_][]const u8{} },
+        .{ .input = "let foo = fn(x){};", .parameters = TestCase.strSlice(&.{"x"}) },
+        .{ .input = "let foo = fn(x, y){};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -1022,7 +1074,7 @@ test "Parse function parameters" {
         };
         try std.testing.expectEqual(1, program.Program.program.items.len);
 
-        const function_literal = program.Program.program.items[0].ExpressionStatement.expression.FunctionLiteral;
+        const function_literal = program.Program.program.items[0].LetStatement.value.FunctionLiteral;
         try std.testing.expectEqual(test_case.parameters.len, function_literal.parameters.items.len);
 
         for (test_case.parameters, 0..) |param, i| {
@@ -1105,4 +1157,43 @@ test "Parse index expression" {
     const index_expression = &program.Program.program.items[0].ExpressionStatement.expression.Index;
     try TestHelpers.test_identifier(index_expression.indexed_expression, "myArray");
     try TestHelpers.test_infix_expression(&index_expression.expression.Infix, 1, 1, "+");
+}
+
+test "Parse return statement" {
+    const Value = union(enum) {
+        integer: i64,
+        float: f64,
+        string: []const u8,
+    };
+    const TestCase = struct {
+        input: []const u8,
+        expected_value: Value,
+    };
+    const tests = [_]TestCase{
+        .{ .input = "return 5;", .expected_value = Value{ .integer = 5 } },
+        .{ .input = "return 10.1;", .expected_value = Value{ .float = 10.1 } },
+        .{ .input = "return foobar;", .expected_value = Value{ .string = "foobar" } },
+        //TODO: test anonymous function returns
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+        try std.testing.expectEqual(1, program.Program.program.items.len);
+        switch (test_case.expected_value) {
+            inline else => |v| try TestHelpers.test_literal_expression(program.Program.program.items[0].ReturnStatement.return_value, v),
+        }
+    }
 }

@@ -271,6 +271,7 @@ pub const FunctionLiteral = struct {
     token: tok.Token,
     parameters: std.ArrayList(AstNode),
     body: *AstNode,
+    name: ?[]const u8,
 
     pub fn format(
         self: @This(),
