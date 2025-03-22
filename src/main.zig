@@ -3,6 +3,7 @@ const Lexer = @import("lexer.zig");
 const Parser = @import("parser.zig").Parser;
 const tok = @import("token.zig");
 const ast = @import("ast.zig");
+const codegen = @import("codegen.zig");
 
 // pub fn main() !void {
 //     const stdin = std.io.getStdIn().reader();
@@ -76,7 +77,7 @@ const c = @cImport({
     @cInclude("llvm-c/ExecutionEngine.h");
 });
 
-fn processSimpleExpression(input: []const u8, allocator: std.mem.Allocator) !ast.Program {
+fn processSimpleExpression(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
     var lex = Lexer.Lexer.init(input, allocator);
     var tokens = try lex_tokens(&lex, allocator);
     const slice_tokens = try tokens.toOwnedSlice();
@@ -97,7 +98,7 @@ fn processSimpleExpression(input: []const u8, allocator: std.mem.Allocator) !ast
             std.debug.print("  {d}: {s}\n", .{ i, e });
         }
     }
-    return program.*;
+    return program;
 }
 
 fn test_codegen() !void {
@@ -205,5 +206,14 @@ fn test_codegen() !void {
 }
 
 pub fn main() !void {
-    try test_codegen();
+    // try test_codegen();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
+    defer arena.deinit();
+
+    const prog = try processSimpleExpression("let a: int = 5;", allocator);
+    var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), allocator);
+    defer compiler.deinit();
+
+    try compiler.run(&prog);
 }

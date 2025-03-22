@@ -20,17 +20,66 @@ const Symbol = struct {
     llvm_value: c.LLVMValueRef,
 };
 
+const SymbolTable = struct {
+    allocator: std.mem.Allocator,
+    scopes: std.ArrayList(std.StringHashMap(Symbol)),
+
+    pub fn init(allocator: std.mem.Allocator) !SymbolTable {
+        var st = SymbolTable{
+            .allocator = allocator,
+            .scopes = std.ArrayList(std.StringHashMap(Symbol)).init(allocator),
+        };
+        try st.enterScope();
+        return st;
+    }
+
+    pub fn define(self: *SymbolTable, symbol: Symbol) !void {
+        var current_scope = &self.scopes.items[self.scopes.items.len - 1];
+        try current_scope.putNoClobber(try self.allocator.dupe(u8, symbol.name), symbol);
+    }
+
+    pub fn enterScope(self: *SymbolTable) !void {
+        const new_scope = std.StringHashMap(Symbol).init(self.allocator);
+        try self.scopes.append(new_scope);
+    }
+
+    pub fn leaveScope(self: *SymbolTable) void {
+        const current_scope = self.scopes.pop().?;
+        var it = current_scope.iterator();
+        for (it.next()) |entry| {
+            self.allocator.free(entry.value_ptr.name);
+        }
+        current_scope.deinit();
+    }
+
+    pub fn lookup(self: *SymbolTable, key: []const u8) ?Symbol {
+        var nth_scope = self.scopes.items.len - 1;
+
+        while (nth_scope >= 0) {
+            if (self.scopes.items[nth_scope].get(key)) |sym| {
+                return sym;
+            }
+            nth_scope -= 1;
+        }
+        return null;
+    }
+};
+
 pub const Compiler = struct {
     context: c.LLVMContextRef,
     module: c.LLVMModuleRef,
     builder: c.LLVMBuilderRef,
+    symbol_table: SymbolTable,
+    current_function: c.LLVMValueRef,
 
-    pub fn init(name: [*c]u8) Compiler {
+    pub fn init(name: [*c]u8, allocator: std.mem.Allocator) !Compiler {
         const context = c.LLVMContextCreate();
         return Compiler{
             .context = context,
             .module = c.LLVMModuleCreateWithNameInContext(name, context),
             .builder = c.LLVMCreateBuilderInContext(context),
+            .symbol_table = try SymbolTable.init(allocator),
+            .current_function = null,
         };
     }
 
@@ -40,33 +89,70 @@ pub const Compiler = struct {
         c.LLVMContextDispose(self.context);
     }
 
-    pub fn run(self: *Compiler, program: ?ast.AstNode) void {
-        _ = program;
+    pub fn run(self: *Compiler, program: *const ast.AstNode) !void {
         const main_type = c.LLVMFunctionType(c.LLVMInt32TypeInContext(self.context), null, 0, 0);
         const main_fn = c.LLVMAddFunction(self.module, "main", main_type);
+        self.current_function = main_fn;
         const main_entry = c.LLVMAppendBasicBlockInContext(self.context, main_fn, "main_block");
         c.LLVMPositionBuilderAtEnd(self.builder, main_entry);
+
+        _ = try self.codegen(program);
+
         _ = c.LLVMBuildRet(self.builder, c.LLVMConstInt(c.LLVMInt32TypeInContext(self.context), 0, 0));
 
         self.analyzeModule();
         self.writeIRToFile();
     }
 
-    fn codegen(self: *Compiler, node: *ast.AstNode) void {
+    fn codegen(self: *Compiler, node: *const ast.AstNode) !c.LLVMValueRef {
         switch (node.*) {
             .Program => |p| {
                 for (p.program.items) |stmt| {
-                    self.codegen(&stmt);
+                    std.debug.print("Visiting program item\n", .{});
+                    _ = try self.codegen(&stmt);
                 }
+                return null;
             },
             .LetStatement => |ls| {
-                _ = ls;
-                @panic("Todo");
+                std.debug.print("Visiting let statement\n", .{});
+                const decl_type = self.getLLVMType(ls.type_annotation);
+                const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
+                const temp_builder = c.LLVMCreateBuilder();
+                defer c.LLVMDisposeBuilder(temp_builder);
+                c.LLVMPositionBuilderAtEnd(temp_builder, cur_fn_entry_block);
+
+                const alloca = c.LLVMBuildAlloca(temp_builder, decl_type, ls.name.Identifier.value.ptr);
+                std.debug.print("Identifier value: {s}\n", .{ls.name.Identifier.value});
+
+                const init_value = try self.codegen(ls.value);
+                _ = c.LLVMBuildStore(self.builder, init_value, alloca);
+                try self.symbol_table.define(Symbol{
+                    .name = ls.name.Identifier.value,
+                    .type_annotation = ls.type_annotation,
+                    .llvm_value = alloca,
+                });
+                return alloca;
+            },
+            .IntegerLiteral => |int_lit| {
+                std.debug.print("Visiting integer literal\n", .{});
+                const int_type = c.LLVMInt64TypeInContext(self.context);
+                const lit: c_ulonglong = @intCast(int_lit.value);
+                return c.LLVMConstInt(int_type, lit, 0);
             },
             else => {
-                @panic("Not implemented");
+                return error.Unreacheable;
             },
         }
+    }
+
+    fn getLLVMType(self: *Compiler, type_annotation: ast.Type) c.LLVMTypeRef {
+        return switch (type_annotation) {
+            .Integer => c.LLVMInt64TypeInContext(self.context),
+            .Float => c.LLVMDoubleTypeInContext(self.context),
+            .Bool => c.LLVMInt1TypeInContext(self.context),
+            .String => c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0),
+            .Void => c.LLVMVoidTypeInContext(self.context),
+        };
     }
 
     fn analyzeModule(self: *Compiler) void {
