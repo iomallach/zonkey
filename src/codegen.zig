@@ -15,7 +15,7 @@ const ast = @import("ast.zig");
 const std = @import("std");
 
 const Symbol = struct {
-    name: []const u8,
+    name: [:0]const u8,
     type_annotation: ast.Type,
     llvm_value: c.LLVMValueRef,
 };
@@ -35,7 +35,7 @@ const SymbolTable = struct {
 
     pub fn define(self: *SymbolTable, symbol: Symbol) !void {
         var current_scope = &self.scopes.items[self.scopes.items.len - 1];
-        try current_scope.putNoClobber(try self.allocator.dupe(u8, symbol.name), symbol);
+        try current_scope.putNoClobber(symbol.name, symbol);
     }
 
     pub fn enterScope(self: *SymbolTable) !void {
@@ -72,6 +72,8 @@ pub const Compiler = struct {
     symbol_table: SymbolTable,
     current_function: c.LLVMValueRef,
 
+    allocator: std.mem.Allocator,
+
     pub fn init(name: [*c]u8, allocator: std.mem.Allocator) !Compiler {
         const context = c.LLVMContextCreate();
         return Compiler{
@@ -80,6 +82,7 @@ pub const Compiler = struct {
             .builder = c.LLVMCreateBuilderInContext(context),
             .symbol_table = try SymbolTable.init(allocator),
             .current_function = null,
+            .allocator = allocator,
         };
     }
 
@@ -121,13 +124,14 @@ pub const Compiler = struct {
                 defer c.LLVMDisposeBuilder(temp_builder);
                 c.LLVMPositionBuilderAtEnd(temp_builder, cur_fn_entry_block);
 
-                const alloca = c.LLVMBuildAlloca(temp_builder, decl_type, ls.name.Identifier.value.ptr);
-                std.debug.print("Identifier value: {s}\n", .{ls.name.Identifier.value});
+                const name = try self.allocator.dupeZ(u8, ls.name.Identifier.value);
+                const alloca = c.LLVMBuildAlloca(temp_builder, decl_type, name.ptr);
+                std.debug.print("Identifier value: {s}\n", .{ls.name.Identifier.token.literal[0..]});
 
                 const init_value = try self.codegen(ls.value);
                 _ = c.LLVMBuildStore(self.builder, init_value, alloca);
                 try self.symbol_table.define(Symbol{
-                    .name = ls.name.Identifier.value,
+                    .name = name,
                     .type_annotation = ls.type_annotation,
                     .llvm_value = alloca,
                 });
@@ -138,6 +142,24 @@ pub const Compiler = struct {
                 const int_type = c.LLVMInt64TypeInContext(self.context);
                 const lit: c_ulonglong = @intCast(int_lit.value);
                 return c.LLVMConstInt(int_type, lit, 0);
+            },
+            .Identifier => |ident| {
+                const symbol = self.symbol_table.lookup(ident.value).?;
+                const symbol_type = self.getLLVMType(symbol.type_annotation);
+                return c.LLVMBuildLoad2(self.builder, symbol_type, symbol.llvm_value, symbol.name);
+            },
+            .ExpressionStatement => |stmt| {
+                std.debug.print("Visiting expression statement\n", .{});
+                return try self.codegen(stmt.expression);
+            },
+            .Infix => |infix| {
+                std.debug.print("Visiting infix\n", .{});
+                if (std.mem.eql(u8, infix.operator, "+")) {
+                    const left = try self.codegen(infix.left);
+                    const right = try self.codegen(infix.right);
+                    return c.LLVMBuildAdd(self.builder, left, right, "add");
+                }
+                return error.Unreachable;
             },
             else => {
                 return error.Unreacheable;
