@@ -143,6 +143,11 @@ pub const Compiler = struct {
                 const lit: c_ulonglong = @intCast(int_lit.value);
                 return c.LLVMConstInt(int_type, lit, 0);
             },
+            .FloatLiteral => |f_lit| {
+                std.debug.print("Visiting float literal\n", .{});
+                const float_type = c.LLVMDoubleTypeInContext(self.context);
+                return c.LLVMConstReal(float_type, f_lit.value);
+            },
             .Identifier => |ident| {
                 const symbol = self.symbol_table.lookup(ident.value).?;
                 const symbol_type = self.getLLVMType(symbol.type_annotation);
@@ -154,16 +159,31 @@ pub const Compiler = struct {
             },
             .Infix => |infix| {
                 std.debug.print("Visiting infix\n", .{});
-                if (std.mem.eql(u8, infix.operator, "+")) {
-                    const left = try self.codegen(infix.left);
-                    const right = try self.codegen(infix.right);
-                    return c.LLVMBuildAdd(self.builder, left, right, "add");
-                }
-                return error.Unreachable;
+                const left = try self.codegen(infix.left);
+                const right = try self.codegen(infix.right);
+                return try self.compileBinOp(left, right, infix.operator);
             },
             else => {
                 return error.Unreacheable;
             },
+        }
+    }
+
+    fn compileBinOp(self: *Compiler, left: c.LLVMValueRef, right: c.LLVMValueRef, operator: []const u8) !c.LLVMValueRef {
+        const type_kind_left = c.LLVMGetTypeKind(c.LLVMTypeOf(left));
+        const type_kind_right = c.LLVMGetTypeKind(c.LLVMTypeOf(right));
+        std.debug.print("Compiling binop with types: {d}, {d}\n", .{ type_kind_left, type_kind_right });
+        //TODO: identifiers are not supported yet
+        if (std.mem.eql(u8, operator, "+") and type_kind_left == c.LLVMIntegerTypeKind and type_kind_right == c.LLVMIntegerTypeKind) {
+            return c.LLVMBuildAdd(self.builder, left, right, "add");
+        } else if (std.mem.eql(u8, operator, "+") and type_kind_left == c.LLVMFloatTypeKind and type_kind_right == c.LLVMFloatTypeKind) {
+            return c.LLVMBuildFAdd(self.builder, left, right, "fadd");
+        } else if (std.mem.eql(u8, operator, "-") and type_kind_left == c.LLVMIntegerTypeKind and type_kind_right == c.LLVMIntegerTypeKind) {
+            return c.LLVMBuildSub(self.builder, left, right, "sub");
+        } else if (std.mem.eql(u8, operator, "-") and type_kind_left == c.LLVMFloatTypeKind and type_kind_right == c.LLVMFloatTypeKind) {
+            return c.LLVMBuildFSub(self.builder, left, right, "fsub");
+        } else {
+            return error.IllegalOperation;
         }
     }
 

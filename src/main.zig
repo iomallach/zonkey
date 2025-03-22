@@ -211,7 +211,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
     defer arena.deinit();
 
-    const prog = try processSimpleExpression("let a: int = 5; let b: int = a; let c: int = a + b;", allocator);
+    const prog = try processSimpleExpression("let a: float = 5.1; let b: float = a; let c: float = a + b;", allocator);
     var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), allocator);
     defer compiler.deinit();
 
