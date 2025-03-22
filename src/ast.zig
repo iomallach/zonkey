@@ -1,11 +1,35 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
-const Type = enum {
+pub const Type = enum {
     Bool,
     Integer,
     Float,
     String,
+    Void,
+
+    pub fn fromLiteral(literal: []const u8) Type {
+        if (std.mem.eql(u8, literal, "bool")) {
+            return Type.Bool;
+        }
+
+        if (std.mem.eql(u8, "int", literal)) {
+            return Type.Integer;
+        }
+
+        if (std.mem.eql(u8, "float", literal)) {
+            return Type.Float;
+        }
+
+        if (std.mem.eql(u8, "string", literal)) {
+            return Type.String;
+        }
+
+        if (std.mem.eql(u8, "void", literal)) {
+            return Type.Void;
+        }
+        unreachable;
+    }
 };
 
 const AstNodeKind = enum {
@@ -23,6 +47,7 @@ const AstNodeKind = enum {
     StringLiteral,
     ArrayLiteral,
     FunctionLiteral,
+    FunctionParameter,
     FunctionCall,
     Prefix,
     Infix,
@@ -43,6 +68,7 @@ pub const AstNode = union(AstNodeKind) {
     StringLiteral: StringLiteral,
     ArrayLiteral: ArrayLiteral,
     FunctionLiteral: FunctionLiteral,
+    FunctionParameter: FunctionParameter,
     FunctionCall: FunctionCall,
     Prefix: Prefix,
     Infix: Infix,
@@ -85,7 +111,7 @@ pub const LetStatement = struct {
     token: tok.Token,
     name: *AstNode, // Identifier
     value: *AstNode, // ExpressionNode
-    ident_type: Type,
+    type_annotation: Type,
 
     pub fn format(
         self: @This(),
@@ -165,7 +191,6 @@ pub const BlockStatement = struct {
 pub const Identifier = struct {
     token: tok.Token,
     value: []const u8,
-    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -183,7 +208,6 @@ pub const Identifier = struct {
 pub const IntegerLiteral = struct {
     token: tok.Token,
     value: i64,
-    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -202,7 +226,6 @@ pub const IntegerLiteral = struct {
 pub const FloatLiteral = struct {
     token: tok.Token,
     value: f64,
-    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -219,7 +242,6 @@ pub const FloatLiteral = struct {
 pub const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
-    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -238,7 +260,6 @@ pub const BooleanLiteral = struct {
 pub const StringLiteral = struct {
     token: tok.Token,
     value: []const u8,
-    ztype: Type,
 
     pub fn format(
         self: @This(),
@@ -308,6 +329,11 @@ pub const FunctionLiteral = struct {
             try b.format(fmt, options, writer);
         }
     }
+};
+
+pub const FunctionParameter = struct {
+    ident: *AstNode, // Identifier,
+    type_annotation: Type,
 };
 
 pub const FunctionCall = struct {

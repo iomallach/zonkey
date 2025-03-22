@@ -74,6 +74,7 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "float", TokenType.Type },
     .{ "string", TokenType.Type },
     .{ "bool", TokenType.Type },
+    .{ "void", TokenType.Type },
 });
 
 pub fn map_identifier(keyword: []const u8) TokenType {
