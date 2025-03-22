@@ -43,7 +43,7 @@ const SymbolTable = struct {
         try self.scopes.append(new_scope);
     }
 
-    pub fn leaveScope(self: *SymbolTable) void {
+    pub fn exitScope(self: *SymbolTable) void {
         const current_scope = self.scopes.pop().?;
         var it = current_scope.iterator();
         for (it.next()) |entry| {
