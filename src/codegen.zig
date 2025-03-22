@@ -11,19 +11,80 @@ const c = @cImport({
 
     @cInclude("llvm-c/ExecutionEngine.h");
 });
+const ast = @import("ast.zig");
+const std = @import("std");
+
+const Symbol = struct {
+    name: []const u8,
+    type_annotation: ast.Type,
+    llvm_value: c.LLVMValueRef,
+};
 
 pub const Compiler = struct {
     context: c.LLVMContextRef,
     module: c.LLVMModuleRef,
     builder: c.LLVMBuilderRef,
 
-    pub fn init(name: []const u8) Compiler {
+    pub fn init(name: [*c]u8) Compiler {
         const context = c.LLVMContextCreate();
         return Compiler{
             .context = context,
             .module = c.LLVMModuleCreateWithNameInContext(name, context),
             .builder = c.LLVMCreateBuilderInContext(context),
         };
+    }
+
+    pub fn deinit(self: *Compiler) void {
+        c.LLVMDisposeBuilder(self.builder);
+        c.LLVMDisposeModule(self.module);
+        c.LLVMContextDispose(self.context);
+    }
+
+    pub fn run(self: *Compiler, program: ?ast.AstNode) void {
+        _ = program;
+        const main_type = c.LLVMFunctionType(c.LLVMInt32TypeInContext(self.context), null, 0, 0);
+        const main_fn = c.LLVMAddFunction(self.module, "main", main_type);
+        const main_entry = c.LLVMAppendBasicBlockInContext(self.context, main_fn, "main_block");
+        c.LLVMPositionBuilderAtEnd(self.builder, main_entry);
+        _ = c.LLVMBuildRet(self.builder, c.LLVMConstInt(c.LLVMInt32TypeInContext(self.context), 0, 0));
+
+        self.analyzeModule();
+        self.writeIRToFile();
+    }
+
+    fn codegen(self: *Compiler, node: *ast.AstNode) void {
+        switch (node.*) {
+            .Program => |p| {
+                for (p.program.items) |stmt| {
+                    self.codegen(&stmt);
+                }
+            },
+            .LetStatement => |ls| {
+                _ = ls;
+                @panic("Todo");
+            },
+            else => {
+                @panic("Not implemented");
+            },
+        }
+    }
+
+    fn analyzeModule(self: *Compiler) void {
+        var err_msg: [*c]u8 = null;
+        defer c.LLVMDisposeMessage(err_msg);
+        _ = c.LLVMVerifyModule(self.module, c.LLVMAbortProcessAction, &err_msg);
+        if (err_msg) |m| {
+            std.debug.print("{s}", .{m});
+        }
+    }
+
+    fn writeIRToFile(self: *Compiler) void {
+        var err_msg: [*c]u8 = null;
+        defer c.LLVMDisposeMessage(err_msg);
+        _ = c.LLVMPrintModuleToFile(self.module, "module.ll", &err_msg);
+        if (err_msg) |m| {
+            std.debug.print("{s}", .{m});
+        }
     }
 };
 
