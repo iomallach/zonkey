@@ -213,14 +213,16 @@ pub const Parser = struct {
             return null;
         }
         const ident_token = self.currentToken();
-        //expect : sign
-        if (!try self.matchNextAndAdvance(tok.TokenType.COLON)) {
-            return null;
+
+        //if there is :, parse the type
+        var type_annotation: ?ast.Type = null;
+        if (self.matchPeekTokenType(tok.TokenType.COLON)) {
+            self.advance();
+            if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
+                return null;
+            }
+            type_annotation = self.parseTypeAnnotation();
         }
-        if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
-            return null;
-        }
-        const type_annotation = self.parseTypeAnnotation();
 
         //expect = sign
         if (!try self.matchNextAndAdvance(tok.TokenType.EQUAL)) {
@@ -823,12 +825,12 @@ test "Test parse let statement" {
             .expected_value = Value{ .integer = 5 },
         },
         .{
-            .input = "let y: int = 10",
+            .input = "let y = 10",
             .expected_identifier = "y",
             .expected_value = Value{ .integer = 10 },
         },
         .{
-            .input = "let foobar: bool = y",
+            .input = "let foobar = y",
             .expected_identifier = "foobar",
             .expected_value = Value{ .string = "y" },
         },

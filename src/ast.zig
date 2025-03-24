@@ -187,7 +187,7 @@ pub const LetStatement = struct {
     token: tok.Token,
     name: *AstNode, // Identifier
     value: *AstNode, // ExpressionNode
-    type_annotation: Type,
+    type_annotation: ?Type,
 
     pub fn format(
         self: @This(),
