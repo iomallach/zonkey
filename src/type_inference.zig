@@ -235,7 +235,7 @@ fn parse_program(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
     return program;
 }
 
-test "Infer simple literal expressions" {
+test "Infer simple expressions" {
     const TestCase = struct {
         expected: ast.Type,
         input: []const u8,
@@ -245,6 +245,29 @@ test "Infer simple literal expressions" {
         .{ .expected = ast.Type.Float, .input = "5.4" },
         .{ .expected = ast.Type.String, .input = "\"test\"" },
         .{ .expected = ast.Type.Bool, .input = "true" },
+        .{ .expected = ast.Type.Bool, .input = "!true" },
+        .{ .expected = ast.Type.Bool, .input = "!false" },
+        .{ .expected = ast.Type.Integer, .input = "-5" },
+        .{ .expected = ast.Type.Float, .input = "-7.3" },
+        .{ .expected = ast.Type.Float, .input = "5 - 3" },
+        .{ .expected = ast.Type.Float, .input = "5 + 3" },
+        .{ .expected = ast.Type.Float, .input = "5 / 3" },
+        .{ .expected = ast.Type.Float, .input = "5 * 3" },
+        .{ .expected = ast.Type.Bool, .input = "5 == 3" },
+        .{ .expected = ast.Type.Bool, .input = "5 != 3" },
+        .{ .expected = ast.Type.Bool, .input = "5 > 3" },
+        .{ .expected = ast.Type.Bool, .input = "5 < 3" },
+        //TODO: unsupported for now
+        // .{ .expected = ast.Type.Bool, .input = "5 >= 3" },
+        // .{ .expected = ast.Type.Bool, .input = "5 <= 3" },
+        .{ .expected = ast.Type.Bool, .input = "true == false" },
+        .{ .expected = ast.Type.Bool, .input = "true == true" },
+        .{ .expected = ast.Type.Bool, .input = "false == false" },
+        .{ .expected = ast.Type.Bool, .input = "false == true" },
+        .{ .expected = ast.Type.Bool, .input = "true != false" },
+        .{ .expected = ast.Type.Bool, .input = "true != true" },
+        .{ .expected = ast.Type.Bool, .input = "false != false" },
+        .{ .expected = ast.Type.Bool, .input = "false != true" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
