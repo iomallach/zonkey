@@ -241,14 +241,20 @@ pub const Parser = struct {
         }
 
         const heap_identifier = try self.alloc.create(ast.AstNode);
-        heap_identifier.* = ast.AstNode{ .Identifier = ast.Identifier{ .token = ident_token, .value = ident_token.literal } };
+        heap_identifier.* = ast.AstNode{
+            .Identifier = ast.Identifier{
+                .token = ident_token,
+                .value = ident_token.literal,
+                .inferred_type = null,
+            },
+        };
 
         return ast.AstNode{
             .LetStatement = ast.LetStatement{
                 .token = let_token,
                 .name = heap_identifier,
                 .value = heap_expression,
-                .type_annotation = type_annotation,
+                .inferred_type = type_annotation,
             },
         };
     }
@@ -319,6 +325,7 @@ pub const Parser = struct {
         return ast.AstNode{ .IntegerLiteral = ast.IntegerLiteral{
             .token = token,
             .value = try std.fmt.parseInt(i64, token.literal, 10),
+            .inferred_type = null,
         } };
     }
 
@@ -327,6 +334,7 @@ pub const Parser = struct {
         return ast.AstNode{ .FloatLiteral = ast.FloatLiteral{
             .token = token,
             .value = try std.fmt.parseFloat(f64, token.literal),
+            .inferred_type = null,
         } };
     }
 
@@ -335,6 +343,7 @@ pub const Parser = struct {
         return ast.AstNode{ .Identifier = ast.Identifier{
             .token = token,
             .value = token.literal,
+            .inferred_type = null,
         } };
     }
 
@@ -343,6 +352,7 @@ pub const Parser = struct {
         return ast.AstNode{ .StringLiteral = ast.StringLiteral{
             .token = token,
             .value = token.literal,
+            .inferred_type = null,
         } };
     }
 
@@ -370,7 +380,13 @@ pub const Parser = struct {
 
     fn parseBoolean(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.AstNode{ .BooleanLiteral = ast.BooleanLiteral{ .token = token, .value = self.matchCurrentTokenType(tok.TokenType.TRUE) } };
+        return ast.AstNode{
+            .BooleanLiteral = ast.BooleanLiteral{
+                .token = token,
+                .value = self.matchCurrentTokenType(tok.TokenType.TRUE),
+                .inferred_type = null,
+            },
+        };
     }
 
     fn parseGroupedExpression(self: *Parser) !ast.AstNode {
@@ -557,7 +573,11 @@ pub const Parser = struct {
             return error.UnexpectedToken;
         }
 
-        var ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal };
+        var ident = ast.Identifier{
+            .token = self.currentToken(),
+            .value = self.currentToken().literal,
+            .inferred_type = null,
+        };
         var heap_ident = try self.alloc.create(ast.AstNode);
         heap_ident.* = ast.AstNode{
             .Identifier = ident,
@@ -572,7 +592,7 @@ pub const Parser = struct {
         var type_annotation = self.parseTypeAnnotation();
         try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
             .ident = heap_ident,
-            .type_annotation = type_annotation,
+            .inferred_type = type_annotation,
         } });
 
         while (self.matchPeekTokenType(tok.TokenType.COMMA)) {

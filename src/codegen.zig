@@ -118,7 +118,7 @@ pub const Compiler = struct {
             },
             .LetStatement => |ls| {
                 std.debug.print("Visiting let statement\n", .{});
-                const decl_type = self.getLLVMType(ls.type_annotation);
+                const decl_type = self.getLLVMType(ls.inferred_type.?);
                 const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
                 const temp_builder = c.LLVMCreateBuilder();
                 defer c.LLVMDisposeBuilder(temp_builder);
@@ -132,7 +132,7 @@ pub const Compiler = struct {
                 _ = c.LLVMBuildStore(self.builder, init_value, alloca);
                 try self.symbol_table.define(Symbol{
                     .name = name,
-                    .type_annotation = ls.type_annotation,
+                    .type_annotation = ls.inferred_type.?,
                     .llvm_value = alloca,
                 });
                 return alloca;

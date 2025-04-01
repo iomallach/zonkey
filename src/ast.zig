@@ -187,7 +187,7 @@ pub const LetStatement = struct {
     token: tok.Token,
     name: *AstNode, // Identifier
     value: *AstNode, // ExpressionNode
-    type_annotation: ?Type,
+    inferred_type: ?Type,
 
     pub fn format(
         self: @This(),
@@ -273,6 +273,7 @@ pub const WhileLoopStatement = struct {
 pub const Identifier = struct {
     token: tok.Token,
     value: []const u8,
+    inferred_type: ?Type,
 
     pub fn format(
         self: @This(),
@@ -290,6 +291,7 @@ pub const Identifier = struct {
 pub const IntegerLiteral = struct {
     token: tok.Token,
     value: i64,
+    inferred_type: ?Type,
 
     pub fn format(
         self: @This(),
@@ -308,6 +310,7 @@ pub const IntegerLiteral = struct {
 pub const FloatLiteral = struct {
     token: tok.Token,
     value: f64,
+    inferred_type: ?Type,
 
     pub fn format(
         self: @This(),
@@ -324,6 +327,7 @@ pub const FloatLiteral = struct {
 pub const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
+    inferred_type: ?Type,
 
     pub fn format(
         self: @This(),
@@ -342,6 +346,7 @@ pub const BooleanLiteral = struct {
 pub const StringLiteral = struct {
     token: tok.Token,
     value: []const u8,
+    inferred_type: ?Type,
 
     pub fn format(
         self: @This(),
@@ -415,7 +420,7 @@ pub const FunctionLiteral = struct {
 
 pub const FunctionParameter = struct {
     ident: *AstNode, // Identifier,
-    type_annotation: Type,
+    inferred_type: Type,
 };
 
 pub const FunctionCall = struct {
