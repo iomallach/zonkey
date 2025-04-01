@@ -601,7 +601,7 @@ pub const Parser = struct {
                 return error.UnexpectedToken;
             }
 
-            ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal };
+            ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal, .inferred_type = null };
             heap_ident = try self.alloc.create(ast.AstNode);
             heap_ident.* = ast.AstNode{
                 .Identifier = ident,
@@ -615,7 +615,7 @@ pub const Parser = struct {
             type_annotation = self.parseTypeAnnotation();
             try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
                 .ident = heap_ident,
-                .type_annotation = type_annotation,
+                .inferred_type = type_annotation,
             } });
         }
 
