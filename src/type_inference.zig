@@ -282,3 +282,30 @@ test "Infer simple expressions" {
         try std.testing.expectEqual(test_case.expected, typ);
     }
 }
+
+test "Infer let statements" {
+    const TestCase = struct {
+        expected: ast.Type,
+        input: []const u8,
+    };
+    // TODO: need un-happy path tests
+    const tests = [_]TestCase{
+        .{ .expected = ast.Type.String, .input = "let a = \"test\"" },
+        .{ .expected = ast.Type.String, .input = "let a: string = \"test\"" },
+        .{ .expected = ast.Type.Float, .input = "let a = 4 + 3" },
+        .{ .expected = ast.Type.Bool, .input = "let a = !true" },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        _ = try checker.inferAndCheck(&program);
+
+        try std.testing.expectEqual(checker.errors_list.items.len, 0);
+        try std.testing.expectEqual(test_case.expected, checker.type_env.lookup("a").?);
+    }
+}
