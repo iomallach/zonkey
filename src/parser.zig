@@ -201,6 +201,7 @@ pub const Parser = struct {
             tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
             tok.TokenType.RETURN => try self.parseReturnStatement(),
             tok.TokenType.WHILE => try self.parseWhileLoopStatement(),
+            //TODO: TokenType.Ident and peek == EQUAL => parse assignment statement
             else => try self.parseExpressionStatement(),
         };
     }

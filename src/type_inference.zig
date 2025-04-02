@@ -309,3 +309,79 @@ test "Infer let statements" {
         try std.testing.expectEqual(test_case.expected, checker.type_env.lookup("a").?);
     }
 }
+
+test "Infer nested expressions" {
+    const TestCase = struct {
+        expected: ast.Type,
+        input: []const u8,
+    };
+    const tests = [_]TestCase{
+        .{ .expected = ast.Type.Float, .input = "-1 + 2" },
+        .{ .expected = ast.Type.Float, .input = "2 + 3 - 1 * 2" },
+        .{ .expected = ast.Type.Float, .input = "-(4 + 5) / 3" },
+        .{ .expected = ast.Type.Bool, .input = "!(2 < 3)" },
+        .{ .expected = ast.Type.Bool, .input = "!(!true == false)" },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        const program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        const typ = (try checker.inferAndCheck(program.Program.program.items[0].ExpressionStatement.expression)).?;
+
+        try std.testing.expectEqual(checker.errors_list.items.len, 0);
+        try std.testing.expectEqual(test_case.expected, typ);
+    }
+}
+
+test "Infer if expressions" {
+    const TestCase = struct {
+        expected: ast.Type,
+        input: []const u8,
+    };
+    const tests = [_]TestCase{
+        .{ .expected = ast.Type.Bool, .input = "if true == false {}" },
+        .{ .expected = ast.Type.Bool, .input = "if !(3 < 5) { let a = 3; } else {}" },
+        .{ .expected = ast.Type.Bool, .input = "let a = (5 * 2) < 10; if a {}" },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        _ = try checker.inferAndCheck(&program);
+
+        try std.testing.expectEqual(checker.errors_list.items.len, 0);
+    }
+}
+
+test "Infer function declaration" {
+    const TestCase = struct {
+        // TODO: not storing function type yet, as no function type exists
+        expected: ast.Type,
+        input: []const u8,
+    };
+    const tests = [_]TestCase{
+        .{ .expected = ast.Type.Bool, .input = "fn myfunc(x: int) int { return x; }" },
+        .{ .expected = ast.Type.Bool, .input = "fn myfunc(x: int, y: float) float { return x * y; }" },
+        .{ .expected = ast.Type.Bool, .input = "fn myfunc() bool { return !false; }" },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        _ = try checker.inferAndCheck(&program);
+
+        try std.testing.expectEqual(0, checker.errors_list.items.len);
+    }
+}
