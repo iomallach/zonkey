@@ -69,7 +69,7 @@ pub const TypeChecker = struct {
             .LetStatement => |*ls| {
                 const exp_type = (try self.inferAndCheck(ls.value)).?;
                 if (ls.name.Identifier.inferred_type) |it| {
-                    if (it != exp_type) {
+                    if (!std.meta.eql(exp_type, it)) {
                         try self.errors_list.append("BAD ERROR");
                         return null;
                     }
@@ -81,7 +81,7 @@ pub const TypeChecker = struct {
             },
             .ReturnStatement => |*r| {
                 const ret_type = (try self.inferAndCheck(r.return_value)).?;
-                if (self.current_function.?.return_type != ret_type) {
+                if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
                     try self.errors_list.append("BAD ERROR");
                 }
             },
@@ -101,6 +101,13 @@ pub const TypeChecker = struct {
                 unreachable;
             },
             .FunctionLiteral => |*fl| {
+                const heap_inner_ftype = try self.allocator.create(ast.FunctionType);
+                heap_inner_ftype.* = try ast.FunctionType.init(&fl.parameters, fl.return_type, self.allocator);
+                const func_type = ast.Type{
+                    .Function = heap_inner_ftype,
+                };
+                try self.type_env.define(fl.name.?, func_type);
+
                 try self.type_env.enterScope();
                 self.current_function = fl;
                 // define parameters
@@ -116,21 +123,22 @@ pub const TypeChecker = struct {
             },
             .ArrayLiteral => unreachable, //TODO: implement later
             .FunctionCall => |*fc| {
-                if (fc.function.FunctionLiteral.parameters.items.len != fc.arguments.items.len) {
+                const func = self.type_env.lookup(fc.function.Identifier.value).?;
+                if (func.Function.arg_types.items.len != fc.arguments.items.len) {
                     try self.errors_list.append("Argument number mismatch");
+                    return null;
                 }
-                for (fc.function.FunctionLiteral.parameters.items, 0..) |*p, i| {
-                    const param_type = p.FunctionParameter.inferred_type;
+                for (func.Function.arg_types.items, 0..) |p, i| {
                     const passed_type = (try self.inferAndCheck(&fc.arguments.items[i])).?;
-                    if (param_type != passed_type) {
+                    if (!std.meta.eql(p, passed_type)) {
                         try self.errors_list.append("Function parameter type mismatch");
                     }
                 }
-                return fc.function.FunctionLiteral.return_type;
+                return func.Function.return_type;
             },
             .If => |iff| {
                 const cond_type = (try self.inferAndCheck(iff.condition)).?;
-                if (cond_type != .Bool) {
+                if (cond_type != .PrimitiveType or cond_type.PrimitiveType != .Bool) {
                     try self.errors_list.append("Expected boolean expression");
                 }
                 //TODO: we allow if expressions, but for now this doesn't infer cons/alt types
@@ -141,34 +149,43 @@ pub const TypeChecker = struct {
             },
             .Prefix => |pref| {
                 const exp_type = (try self.inferAndCheck(pref.right)).?;
-                if (pref.operator == .Minus and (exp_type == .Float or exp_type == .Integer)) {
-                    return exp_type;
-                } else if (pref.operator == .Negation and exp_type == .Bool) {
-                    return exp_type;
+                switch (exp_type) {
+                    .PrimitiveType => |pt| {
+                        if (pref.operator == .Minus and (pt == .Float or pt == .Integer)) {
+                            return exp_type;
+                        } else if (pref.operator == .Negation and pt == .Bool) {
+                            return exp_type;
+                        }
+                    },
+                    else => try self.errors_list.append("Invalid prefix expression type"),
                 }
-                try self.errors_list.append("Invalid prefix expression type");
                 return null;
             },
             .Infix => |infx| {
                 const left_type = (try self.inferAndCheck(infx.left)).?;
                 const right_type = (try self.inferAndCheck(infx.right)).?;
+                //infix on functions doesn't make sense
+                if (left_type == .Function or right_type == .Function) {
+                    try self.errors_list.append("Invalid infix expression");
+                    return null;
+                }
                 // string and void are immediately unsupported in infix at the moment
-                if (left_type == .String or left_type == .Void or right_type == .String or right_type == .Void) {
+                if (left_type.PrimitiveType == .String or left_type.PrimitiveType == .Void or right_type.PrimitiveType == .String or right_type.PrimitiveType == .Void) {
                     try self.errors_list.append("Invalid infix expression");
                     return null;
                 }
                 switch (infx.operator) {
                     .Plus, .Minus, .Multiply, .Divide => {
-                        if (left_type == .Bool or right_type == .Bool) {
+                        if (left_type.PrimitiveType == .Bool or right_type.PrimitiveType == .Bool) {
                             try self.errors_list.append("Invalid infix expression");
                             return null;
                         }
                         // TODO: this is not ideal, but keeping for simplicity at the moment
-                        return ast.Type.Float;
+                        return ast.Type{ .PrimitiveType = ast.PrimitiveType.Float };
                     },
                     //TODO: should probably split equal/notequal and others due to booleans, but ok for now
                     .EqualEqual, .NotEqual, .Greater, .Less, .GreaterEqual, .LessEqual => {
-                        return ast.Type.Bool;
+                        return ast.Type{ .PrimitiveType = ast.PrimitiveType.Bool };
                     },
                 }
             },
@@ -181,16 +198,16 @@ pub const TypeChecker = struct {
                 return ident_type;
             },
             .IntegerLiteral => {
-                return ast.Type.Integer;
+                return ast.Type{ .PrimitiveType = ast.PrimitiveType.Integer };
             },
             .FloatLiteral => {
-                return ast.Type.Float;
+                return ast.Type{ .PrimitiveType = .Float };
             },
             .BooleanLiteral => {
-                return ast.Type.Bool;
+                return ast.Type{ .PrimitiveType = .Bool };
             },
             .StringLiteral => {
-                return ast.Type.String;
+                return ast.Type{ .PrimitiveType = .String };
             },
             else => unreachable,
         }
@@ -198,7 +215,7 @@ pub const TypeChecker = struct {
     }
 };
 
-pub fn test_parse_errors(errors: *std.ArrayList([]const u8)) !void {
+pub fn test_errors(errors: *std.ArrayList([]const u8)) !void {
     if (errors.*.items.len > 0) {
         std.debug.print("Errors:\n", .{});
         for (errors.*.items, 1..) |e, i| {
@@ -228,7 +245,7 @@ fn parse_program(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
     var parser = try Parser.init(slice_tokens, allocator);
     const program = parser.parse() catch |err| {
         //FIXME: stop ignoring the error once the error diagnostics are complete
-        test_parse_errors(parser.errors()) catch {};
+        test_errors(parser.errors()) catch {};
         return err;
     };
 
@@ -241,33 +258,33 @@ test "Infer simple expressions" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Integer, .input = "4" },
-        .{ .expected = ast.Type.Float, .input = "5.4" },
-        .{ .expected = ast.Type.String, .input = "\"test\"" },
-        .{ .expected = ast.Type.Bool, .input = "true" },
-        .{ .expected = ast.Type.Bool, .input = "!true" },
-        .{ .expected = ast.Type.Bool, .input = "!false" },
-        .{ .expected = ast.Type.Integer, .input = "-5" },
-        .{ .expected = ast.Type.Float, .input = "-7.3" },
-        .{ .expected = ast.Type.Float, .input = "5 - 3" },
-        .{ .expected = ast.Type.Float, .input = "5 + 3" },
-        .{ .expected = ast.Type.Float, .input = "5 / 3" },
-        .{ .expected = ast.Type.Float, .input = "5 * 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 == 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 != 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 > 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 < 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Integer }, .input = "4" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "5.4" },
+        .{ .expected = ast.Type{ .PrimitiveType = .String }, .input = "\"test\"" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "!true" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "!false" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Integer }, .input = "-5" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "-7.3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "5 - 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "5 + 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "5 / 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "5 * 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 == 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 != 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 > 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 < 3" },
         //TODO: unsupported for now
-        // .{ .expected = ast.Type.Bool, .input = "5 >= 3" },
-        // .{ .expected = ast.Type.Bool, .input = "5 <= 3" },
-        .{ .expected = ast.Type.Bool, .input = "true == false" },
-        .{ .expected = ast.Type.Bool, .input = "true == true" },
-        .{ .expected = ast.Type.Bool, .input = "false == false" },
-        .{ .expected = ast.Type.Bool, .input = "false == true" },
-        .{ .expected = ast.Type.Bool, .input = "true != false" },
-        .{ .expected = ast.Type.Bool, .input = "true != true" },
-        .{ .expected = ast.Type.Bool, .input = "false != false" },
-        .{ .expected = ast.Type.Bool, .input = "false != true" },
+        // .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 >= 3" },
+        // .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 <= 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true == false" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true == true" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "false == false" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "false == true" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true != false" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true != true" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "false != false" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "false != true" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -279,6 +296,7 @@ test "Infer simple expressions" {
         var checker = try TypeChecker.init(allocator);
         const typ = (try checker.inferAndCheck(program.Program.program.items[0].ExpressionStatement.expression)).?;
 
+        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, typ);
     }
 }
@@ -290,10 +308,10 @@ test "Infer let statements" {
     };
     // TODO: need un-happy path tests
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.String, .input = "let a = \"test\"" },
-        .{ .expected = ast.Type.String, .input = "let a: string = \"test\"" },
-        .{ .expected = ast.Type.Float, .input = "let a = 4 + 3" },
-        .{ .expected = ast.Type.Bool, .input = "let a = !true" },
+        .{ .expected = ast.Type{ .PrimitiveType = .String }, .input = "let a = \"test\"" },
+        .{ .expected = ast.Type{ .PrimitiveType = .String }, .input = "let a: string = \"test\"" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "let a = 4 + 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "let a = !true" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -305,7 +323,7 @@ test "Infer let statements" {
         var checker = try TypeChecker.init(allocator);
         _ = try checker.inferAndCheck(&program);
 
-        try std.testing.expectEqual(checker.errors_list.items.len, 0);
+        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, checker.type_env.lookup("a").?);
     }
 }
@@ -316,11 +334,11 @@ test "Infer nested expressions" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Float, .input = "-1 + 2" },
-        .{ .expected = ast.Type.Float, .input = "2 + 3 - 1 * 2" },
-        .{ .expected = ast.Type.Float, .input = "-(4 + 5) / 3" },
-        .{ .expected = ast.Type.Bool, .input = "!(2 < 3)" },
-        .{ .expected = ast.Type.Bool, .input = "!(!true == false)" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "-1 + 2" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "2 + 3 - 1 * 2" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "-(4 + 5) / 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "!(2 < 3)" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "!(!true == false)" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -332,7 +350,7 @@ test "Infer nested expressions" {
         var checker = try TypeChecker.init(allocator);
         const typ = (try checker.inferAndCheck(program.Program.program.items[0].ExpressionStatement.expression)).?;
 
-        try std.testing.expectEqual(checker.errors_list.items.len, 0);
+        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, typ);
     }
 }
@@ -343,9 +361,9 @@ test "Infer if expressions" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Bool, .input = "if true == false {}" },
-        .{ .expected = ast.Type.Bool, .input = "if !(3 < 5) { let a = 3; } else {}" },
-        .{ .expected = ast.Type.Bool, .input = "let a = (5 * 2) < 10; if a {}" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "if true == false {}" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "if !(3 < 5) { let a = 3; } else {}" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "let a = (5 * 2) < 10; if a {}" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -357,7 +375,7 @@ test "Infer if expressions" {
         var checker = try TypeChecker.init(allocator);
         _ = try checker.inferAndCheck(&program);
 
-        try std.testing.expectEqual(checker.errors_list.items.len, 0);
+        try test_errors(&checker.errors_list);
     }
 }
 
@@ -368,9 +386,9 @@ test "Infer function declaration" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Bool, .input = "fn myfunc(x: int) int { return x; }" },
-        .{ .expected = ast.Type.Bool, .input = "fn myfunc(x: int, y: float) float { return x * y; }" },
-        .{ .expected = ast.Type.Bool, .input = "fn myfunc() bool { return !false; }" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int) int { return x; } myfunc(3)" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int, y: float) float { return x * y; } myfunc(3, 4.5)" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc() bool { return !false; } myfunc()" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -382,6 +400,30 @@ test "Infer function declaration" {
         var checker = try TypeChecker.init(allocator);
         _ = try checker.inferAndCheck(&program);
 
-        try std.testing.expectEqual(0, checker.errors_list.items.len);
+        try test_errors(&checker.errors_list);
+    }
+}
+
+test "Infer function call" {
+    const TestCase = struct {
+        expected: ast.Type,
+        input: []const u8,
+    };
+    const tests = [_]TestCase{
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int) int { return x; }; myfunc(3)" },
+        // FIXME: \n causes integer overflow panic in lexer
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int, y: float) float { return x * y; }; myfunc(1, 3.3)" },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        _ = try checker.inferAndCheck(&program);
+
+        try test_errors(&checker.errors_list);
     }
 }

@@ -75,34 +75,56 @@ pub const BinaryOp = enum {
     }
 };
 
-pub const Type = enum {
+pub const PrimitiveType = enum {
     Bool,
     Integer,
     Float,
     String,
     Void,
+    Function,
 
-    pub fn fromLiteral(literal: []const u8) Type {
+    pub fn fromLiteral(literal: []const u8) PrimitiveType {
         if (std.mem.eql(u8, literal, "bool")) {
-            return Type.Bool;
+            return PrimitiveType.Bool;
         }
 
         if (std.mem.eql(u8, "int", literal)) {
-            return Type.Integer;
+            return PrimitiveType.Integer;
         }
 
         if (std.mem.eql(u8, "float", literal)) {
-            return Type.Float;
+            return PrimitiveType.Float;
         }
 
         if (std.mem.eql(u8, "string", literal)) {
-            return Type.String;
+            return PrimitiveType.String;
         }
 
         if (std.mem.eql(u8, "void", literal)) {
-            return Type.Void;
+            return PrimitiveType.Void;
         }
         unreachable;
+    }
+};
+
+pub const Type = union(enum) {
+    PrimitiveType: PrimitiveType,
+    Function: *FunctionType,
+};
+
+pub const FunctionType = struct {
+    return_type: Type,
+    arg_types: std.ArrayList(Type),
+
+    pub fn init(func_params: *std.ArrayList(AstNode), ret_type: Type, allocator: std.mem.Allocator) !FunctionType {
+        var types = std.ArrayList(Type).init(allocator);
+        for (func_params.*.items) |fp| {
+            try types.append(fp.FunctionParameter.inferred_type);
+        }
+        return FunctionType{
+            .return_type = ret_type,
+            .arg_types = types,
+        };
     }
 };
 

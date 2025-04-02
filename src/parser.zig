@@ -222,7 +222,7 @@ pub const Parser = struct {
             if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
                 return null;
             }
-            type_annotation = self.parseTypeAnnotation();
+            type_annotation = self.parsePrimitiveTypeAnnotation();
         }
 
         //expect = sign
@@ -514,7 +514,7 @@ pub const Parser = struct {
         if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
             return error.UnexpectedToken;
         }
-        const return_type = self.parseTypeAnnotation();
+        const return_type = self.parsePrimitiveTypeAnnotation();
 
         if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
             return error.UnexpectedToken;
@@ -523,6 +523,11 @@ pub const Parser = struct {
         const fn_body_statements = try self.parseBlockStatements();
         const heap_fn_body_statements = try self.alloc.create(ast.AstNode);
         heap_fn_body_statements.* = fn_body_statements;
+
+        if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
+            self.advance();
+            // self.advance();
+        }
 
         return ast.AstNode{ .FunctionLiteral = ast.FunctionLiteral{
             .token = fn_token,
@@ -545,7 +550,7 @@ pub const Parser = struct {
         if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
             return error.UnexpectedToken;
         }
-        const return_type = self.parseTypeAnnotation();
+        const return_type = self.parsePrimitiveTypeAnnotation();
 
         if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
             return error.UnexpectedToken;
@@ -590,7 +595,7 @@ pub const Parser = struct {
         if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
             return error.UnexpectedToken;
         }
-        var type_annotation = self.parseTypeAnnotation();
+        var type_annotation = self.parsePrimitiveTypeAnnotation();
         try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
             .ident = heap_ident,
             .inferred_type = type_annotation,
@@ -613,7 +618,7 @@ pub const Parser = struct {
             if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
                 return error.UnexpectedToken;
             }
-            type_annotation = self.parseTypeAnnotation();
+            type_annotation = self.parsePrimitiveTypeAnnotation();
             try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
                 .ident = heap_ident,
                 .inferred_type = type_annotation,
@@ -708,9 +713,11 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseTypeAnnotation(self: *Parser) ast.Type {
+    fn parsePrimitiveTypeAnnotation(self: *Parser) ast.Type {
         const token = self.currentToken();
-        return ast.Type.fromLiteral(token.literal);
+        return ast.Type{
+            .PrimitiveType = ast.PrimitiveType.fromLiteral(token.literal),
+        };
     }
 
     fn parseWhileLoopStatement(self: *Parser) !ast.AstNode {
@@ -860,6 +867,7 @@ test "Test parse let statement" {
             .expected_identifier = "barbaz",
             .expected_value = Value{ .string = "str" },
         },
+        //TODO: still need to implement function literal parsing
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
