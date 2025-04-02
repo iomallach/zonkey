@@ -386,9 +386,9 @@ test "Infer function declaration" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int) int { return x; } myfunc(3)" },
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int, y: float) float { return x * y; } myfunc(3, 4.5)" },
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc() bool { return !false; } myfunc()" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int) int { return x; }" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int, y: float) float { return x * y; }" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc() bool { return !false; }" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -425,5 +425,35 @@ test "Infer function call" {
         _ = try checker.inferAndCheck(&program);
 
         try test_errors(&checker.errors_list);
+    }
+}
+
+test "Infer mixed expressions" {
+    const TestCase = struct {
+        input: []const u8,
+        expected: ast.Type,
+    };
+    const tests = [_]TestCase{
+        .{
+            .expected = ast.Type{ .PrimitiveType = ast.PrimitiveType.Float },
+            .input = "fn myfunc(x: int) float { return 1 + x; }; let foo = 3 + myfunc(2);",
+        },
+        .{
+            .expected = ast.Type{ .PrimitiveType = ast.PrimitiveType.Bool },
+            .input = "fn myfunc(z: bool) bool { return !z; }; let foo = (3 < 5) != myfunc(1 > 2);",
+        },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        _ = try checker.inferAndCheck(&program);
+
+        try test_errors(&checker.errors_list);
+        try std.testing.expectEqual(test_case.expected.PrimitiveType, checker.type_env.lookup("foo").?.PrimitiveType);
     }
 }
