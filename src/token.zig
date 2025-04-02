@@ -19,7 +19,9 @@ pub const TokenType = enum {
     SLASH,
     ASTERISK,
     LESS,
+    LESS_EQUAL,
     GREATER,
+    GREATER_EQUAL,
     EQUAL_EQUAL,
     BANG_EQUAL,
 
