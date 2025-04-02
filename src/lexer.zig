@@ -195,8 +195,10 @@ pub const Lexer = struct {
                         return tok.Token{ .token_type = tok.TokenType.FLOAT, .literal = literal_and_span.literal, .span = literal_and_span.span };
                     }
                     return tok.Token{ .token_type = tok.TokenType.INT, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                } else {
+                    span = self.token_span(self.position, self.position);
+                    token = tok.Token{ .token_type = tok.TokenType.ILLEGAL, .literal = self.slice_literal(1), .span = span };
                 }
-                //FIXME: else ILLEGAL
             },
         }
 
