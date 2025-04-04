@@ -255,7 +255,7 @@ pub const Parser = struct {
             .LetStatement = ast.LetStatement{
                 .token = let_token,
                 .name = heap_identifier,
-                .value = heap_expression,
+                .expression = heap_expression,
                 .inferred_type = type_annotation,
             },
         };
@@ -856,7 +856,7 @@ test "Test parse let statement" {
         try std.testing.expectEqual(1, program.Program.program.items.len);
         try TestHelpers.test_let_statement(&program.Program.program.items[0], test_case.expected_identifier);
 
-        const expression = program.Program.program.items[0].LetStatement.value;
+        const expression = program.Program.program.items[0].LetStatement.expression;
         switch (test_case.expected_value) {
             .integer => |v| try TestHelpers.test_literal_expression(expression, v),
             .string => |v| try TestHelpers.test_literal_expression(expression, v),

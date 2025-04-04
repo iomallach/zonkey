@@ -67,7 +67,7 @@ pub const TypeChecker = struct {
                 }
             },
             .LetStatement => |*ls| {
-                const exp_type = (try self.inferAndCheck(ls.value)).?;
+                const exp_type = (try self.inferAndCheck(ls.expression)).?;
                 if (ls.name.Identifier.inferred_type) |it| {
                     if (!std.meta.eql(exp_type, it)) {
                         try self.errors_list.append("BAD ERROR");

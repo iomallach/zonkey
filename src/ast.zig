@@ -210,7 +210,7 @@ pub const Program = struct {
 pub const LetStatement = struct {
     token: tok.Token,
     name: *AstNode, // Identifier
-    value: *AstNode, // ExpressionNode
+    expression: *AstNode, // ExpressionNode
     inferred_type: ?Type,
 
     pub fn format(
@@ -222,7 +222,7 @@ pub const LetStatement = struct {
         try writer.writeAll(self.token.literal);
         try self.name.format(fmt, options, writer);
         try writer.writeAll(" = ");
-        try self.value.format(fmt, options, writer);
+        try self.expression.format(fmt, options, writer);
         try writer.writeAll(";");
     }
 };
