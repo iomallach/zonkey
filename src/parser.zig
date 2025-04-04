@@ -2,8 +2,8 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const tok = @import("token.zig");
 
-const prefixParserFn = fn (*Parser) anyerror!ast.AstNode;
-const infixParserFn = fn (*Parser, ast.AstNode) anyerror!ast.AstNode;
+const prefixParserFn = fn (*Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode;
+const infixParserFn = fn (*Parser, ast.AstNode) error{ OutOfMemory, UnexpectedToken }!ast.AstNode;
 
 const Precedence = enum(u8) {
     LOWEST = 1,
@@ -122,16 +122,15 @@ pub const Parser = struct {
         return self.currentToken().token_type == tt;
     }
 
-    fn matchNextAndAdvance(self: *Parser, tt: tok.TokenType) !bool {
+    fn matchNextAndAdvance(self: *Parser, tt: tok.TokenType) error{ OutOfMemory, UnexpectedToken }!void {
         if (!self.matchPeekTokenType(tt)) {
             try self.peekError(tt);
-            return false;
+            return error.UnexpectedToken;
         }
         self.advance();
-        return true;
     }
 
-    fn peekError(self: *Parser, tt: tok.TokenType) !void {
+    fn peekError(self: *Parser, tt: tok.TokenType) error{OutOfMemory}!void {
         const token = self.peekToken();
         const spaces = try self.alloc.alloc(u8, token.span.start);
         @memset(spaces, ' ');
@@ -152,7 +151,7 @@ pub const Parser = struct {
         try self.errors_list.append(error_message);
     }
 
-    fn parseletError(self: *Parser) !void {
+    fn parseletError(self: *Parser) error{OutOfMemory}!void {
         const token = self.currentToken();
         const spaces = try self.alloc.alloc(u8, token.span.start);
         @memset(spaces, ' ');
@@ -176,15 +175,13 @@ pub const Parser = struct {
         return &self.errors_list;
     }
 
-    pub fn parse(self: *Parser) !ast.AstNode {
+    pub fn parse(self: *Parser) error{OutOfMemory}!ast.AstNode {
         var program = ast.Program.init(self.alloc);
 
         while (!self.matchCurrentTokenType(tok.TokenType.EOF)) {
             const stmt = try self.parseStatement();
 
-            if (stmt) |s| {
-                try program.addStatement(s);
-            }
+            try program.addStatement(stmt);
             self.advance();
         }
 
@@ -193,51 +190,51 @@ pub const Parser = struct {
         };
     }
 
-    fn parseStatement(self: *Parser) anyerror!?ast.AstNode {
-        return switch (self.currentToken().token_type) {
-            tok.TokenType.LET => try self.parseLetStatement(),
-            tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
-            tok.TokenType.RETURN => try self.parseReturnStatement(),
-            tok.TokenType.WHILE => try self.parseWhileLoopStatement(),
+    fn parseStatement(self: *Parser) error{OutOfMemory}!ast.AstNode {
+        const node = switch (self.currentToken().token_type) {
+            tok.TokenType.LET => self.parseLetStatement(),
+            tok.TokenType.FUNCTION => self.parseFunctionDeclaration(),
+            tok.TokenType.RETURN => self.parseReturnStatement(),
+            tok.TokenType.WHILE => self.parseWhileLoopStatement(),
             tok.TokenType.IDENT => blk: {
                 if (self.matchPeekTokenType(tok.TokenType.EQUAL)) {
-                    break :blk try self.parseAssignmentStatement();
+                    break :blk self.parseAssignmentStatement();
                 } else {
-                    break :blk try self.parseExpressionStatement();
+                    break :blk self.parseExpressionStatement();
                 }
             },
-            else => try self.parseExpressionStatement(),
+            else => self.parseExpressionStatement(),
+        };
+        return node catch |err| {
+            switch (err) {
+                error.OutOfMemory => |oom| return oom,
+                //TODO: skip to the next statement, e.g. next ;
+                error.UnexpectedToken => @panic("FUCKED UP"),
+            }
         };
     }
 
-    fn parseLetStatement(self: *Parser) !?ast.AstNode {
+    fn parseLetStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         // already know current token is a let token
         const let_token = self.currentToken();
         // expect next to be an identifier
-        if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
-            return null;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.IDENT);
         const ident_token = self.currentToken();
 
         //if there is :, parse the type
         var type_annotation: ?ast.Type = null;
         if (self.matchPeekTokenType(tok.TokenType.COLON)) {
             self.advance();
-            if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
-                return null;
-            }
+            try self.matchNextAndAdvance(tok.TokenType.Type);
+            //FIXME: what if there is no valid type annotation?
             type_annotation = self.parsePrimitiveTypeAnnotation();
         }
 
         //expect = sign
-        if (!try self.matchNextAndAdvance(tok.TokenType.EQUAL)) {
-            return null;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.EQUAL);
         self.advance();
 
-        const expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const expression = try self.parseExpression(Precedence.LOWEST);
         const heap_expression = try self.alloc.create(ast.AstNode);
         heap_expression.* = expression;
 
@@ -264,13 +261,11 @@ pub const Parser = struct {
         };
     }
 
-    fn parseReturnStatement(self: *Parser) !ast.AstNode {
+    fn parseReturnStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const return_token = self.currentToken();
         self.advance();
 
-        const return_expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const return_expression = try self.parseExpression(Precedence.LOWEST);
         const heap_return_expression = try self.alloc.create(ast.AstNode);
         heap_return_expression.* = return_expression;
 
@@ -284,12 +279,10 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseExpressionStatement(self: *Parser) !?ast.AstNode {
+    fn parseExpressionStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const token = self.currentToken();
         //FIXME: this here is still optional
-        const expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const expression = try self.parseExpression(Precedence.LOWEST);
         const heap_expression = try self.alloc.create(ast.AstNode);
         heap_expression.* = expression;
 
@@ -305,18 +298,18 @@ pub const Parser = struct {
         };
     }
 
-    fn parseExpression(self: *Parser, prec: Precedence) !?ast.AstNode {
+    fn parseExpression(self: *Parser, prec: Precedence) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const prefix_parselet = self.prefix_fns.get(self.currentToken().token_type) orelse {
             try self.parseletError();
-            return null;
+            return error.UnexpectedToken;
         };
         var left_expr = try prefix_parselet(self);
 
         while (!self.matchPeekTokenType(tok.TokenType.SEMICOLON) and @intFromEnum(prec) < @intFromEnum(self.peekPrecedence())) {
             const infix_parselet = self.infix_fns.get(self.peekToken().token_type) orelse {
-                // FIXME: this has to be for the peek token
+                // FIXME: this has to be for the peek token (meaning parseletError reports current token)
                 try self.parseletError();
-                return left_expr;
+                return error.UnexpectedToken;
             };
             self.advance();
             left_expr = try infix_parselet(self, left_expr);
@@ -329,7 +322,9 @@ pub const Parser = struct {
         const token = self.currentToken();
         return ast.AstNode{ .IntegerLiteral = ast.IntegerLiteral{
             .token = token,
-            .value = try std.fmt.parseInt(i64, token.literal, 10),
+            .value = std.fmt.parseInt(i64, token.literal, 10) catch {
+                unreachable;
+            },
             .inferred_type = null,
         } };
     }
@@ -338,7 +333,9 @@ pub const Parser = struct {
         const token = self.currentToken();
         return ast.AstNode{ .FloatLiteral = ast.FloatLiteral{
             .token = token,
-            .value = try std.fmt.parseFloat(f64, token.literal),
+            .value = std.fmt.parseFloat(f64, token.literal) catch {
+                unreachable;
+            },
             .inferred_type = null,
         } };
     }
@@ -361,16 +358,13 @@ pub const Parser = struct {
         } };
     }
 
-    fn parsePrefixExpression(self: *Parser) !ast.AstNode {
+    fn parsePrefixExpression(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         // current token is e.g. - or !
         const token = self.currentToken();
         // move the pointer to the expression
         self.advance();
         // parse the expression
-        const expression = try self.parseExpression(Precedence.PREFIX) orelse {
-            //FIXME: somewhere top level the parser needs to be synchronized, since the syntax is broken at this point
-            return error.NullExpressionParsed;
-        };
+        const expression = try self.parseExpression(Precedence.PREFIX);
 
         // We have to allocate it on the heap due to recursive structure: ExpressionNode -> Prefix -> ExpressionNode
         const heapExpressionNode = try self.alloc.create(ast.AstNode);
@@ -394,32 +388,26 @@ pub const Parser = struct {
         };
     }
 
-    fn parseGroupedExpression(self: *Parser) !ast.AstNode {
+    fn parseGroupedExpression(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         // skip to the next token
         self.advance();
 
-        const grouped_expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const grouped_expression = try self.parseExpression(Precedence.LOWEST);
 
         // grouped expression must end with a matching closing ")"
-        if (!try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.RPAREN);
 
         return grouped_expression;
     }
 
-    fn parseInfixExpression(self: *Parser, left: ast.AstNode) !ast.AstNode {
+    fn parseInfixExpression(self: *Parser, left: ast.AstNode) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         // the operator of the infix expression, e.g. +, -, *, /, etc.
         const token = self.currentToken();
         const cur_precedence = self.currentPrecedence();
         // skip to the token starting the next expression
         self.advance();
         // parse right expression
-        const expression = try self.parseExpression(cur_precedence) orelse {
-            return error.NullExpressionParsed;
-        };
+        const expression = try self.parseExpression(cur_precedence);
 
         // have to allocate on the heap due to recursive structure
         const heapRightExpressionNode = try self.alloc.create(ast.AstNode);
@@ -435,19 +423,15 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseIfExpression(self: *Parser) !ast.AstNode {
+    fn parseIfExpression(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const if_token = self.currentToken();
         // advance to the start of the expression
         self.advance();
-        const if_expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const if_expression = try self.parseExpression(Precedence.LOWEST);
         const heap_if_expression = try self.alloc.create(ast.AstNode);
         heap_if_expression.* = if_expression;
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.LBRACE);
 
         const consequence = try self.parseBlockStatements();
         const heap_consequence = try self.alloc.create(ast.AstNode);
@@ -456,9 +440,7 @@ pub const Parser = struct {
         if (self.matchPeekTokenType(tok.TokenType.ELSE)) {
             self.advance();
 
-            if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
-                return error.UnexpectedToken;
-            }
+            try self.matchNextAndAdvance(tok.TokenType.LBRACE);
             const alternative = try self.parseBlockStatements();
             const heap_alternative = try self.alloc.create(ast.AstNode);
             heap_alternative.* = alternative;
@@ -481,17 +463,16 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseBlockStatements(self: *Parser) !ast.AstNode {
+    fn parseBlockStatements(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const lbrace_token = self.currentToken();
         self.advance();
 
         var block_statements = ast.BlockStatement.init(lbrace_token, self.alloc);
 
         while (!self.matchCurrentTokenType(tok.TokenType.RBRACE) and !self.matchCurrentTokenType(tok.TokenType.EOF)) {
-            const statement = try self.parseStatement() orelse {
-                // FIXME: should record an error and skip to the next statement
-                return error.NullStatementParsed;
-            };
+            // FIXME: should record an error and skip to the next statement
+            //TODO: take a second look at how this should be handled
+            const statement = try self.parseStatement();
             try block_statements.addStatement(statement);
             // we're looking at the last token after each parselet, so skipping it
             self.advance();
@@ -502,27 +483,20 @@ pub const Parser = struct {
         };
     }
 
-    fn parseFunctionDeclaration(self: *Parser) !ast.AstNode {
+    fn parseFunctionDeclaration(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const fn_token = self.currentToken();
-        if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
-            return error.UnexpectedToken;
-        }
+
+        try self.matchNextAndAdvance(tok.TokenType.IDENT);
         const fn_ident = self.currentToken();
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.LPAREN)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.LPAREN);
 
         const parameters = try self.parseFunctionParameters();
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.Type);
         const return_type = self.parsePrimitiveTypeAnnotation();
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.LBRACE);
 
         const fn_body_statements = try self.parseBlockStatements();
         const heap_fn_body_statements = try self.alloc.create(ast.AstNode);
@@ -530,7 +504,6 @@ pub const Parser = struct {
 
         if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
             self.advance();
-            // self.advance();
         }
 
         return ast.AstNode{ .FunctionLiteral = ast.FunctionLiteral{
@@ -542,23 +515,17 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseFunctionLiteral(self: *Parser) !ast.AstNode {
+    fn parseFunctionLiteral(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const fn_token = self.currentToken();
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.LPAREN)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.LPAREN);
 
         const parameters = try self.parseFunctionParameters();
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.Type);
         const return_type = self.parsePrimitiveTypeAnnotation();
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.LBRACE);
 
         const fn_body_statements = try self.parseBlockStatements();
         const heap_fn_body_statements = try self.alloc.create(ast.AstNode);
@@ -573,15 +540,14 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseFunctionParameters(self: *Parser) !std.ArrayList(ast.AstNode) {
+    fn parseFunctionParameters(self: *Parser) error{ OutOfMemory, UnexpectedToken }!std.ArrayList(ast.AstNode) {
         var parameters = std.ArrayList(ast.AstNode).init(self.alloc);
         if (self.matchPeekTokenType(tok.TokenType.RPAREN)) {
             self.advance();
             return parameters;
         }
-        if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
-            return error.UnexpectedToken;
-        }
+
+        try self.matchNextAndAdvance(tok.TokenType.IDENT);
 
         var ident = ast.Identifier{
             .token = self.currentToken(),
@@ -593,12 +559,9 @@ pub const Parser = struct {
             .Identifier = ident,
         };
         //FIXME: duplicated in a few places now
-        if (!try self.matchNextAndAdvance(tok.TokenType.COLON)) {
-            return error.UnexpectedToken;
-        }
-        if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.COLON);
+        try self.matchNextAndAdvance(tok.TokenType.Type);
+
         var type_annotation = self.parsePrimitiveTypeAnnotation();
         try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
             .ident = heap_ident,
@@ -607,21 +570,16 @@ pub const Parser = struct {
 
         while (self.matchPeekTokenType(tok.TokenType.COMMA)) {
             self.advance();
-            if (!try self.matchNextAndAdvance(tok.TokenType.IDENT)) {
-                return error.UnexpectedToken;
-            }
+            try self.matchNextAndAdvance(tok.TokenType.IDENT);
 
             ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal, .inferred_type = null };
             heap_ident = try self.alloc.create(ast.AstNode);
             heap_ident.* = ast.AstNode{
                 .Identifier = ident,
             };
-            if (!try self.matchNextAndAdvance(tok.TokenType.COLON)) {
-                return error.UnexpectedToken;
-            }
-            if (!try self.matchNextAndAdvance(tok.TokenType.Type)) {
-                return error.UnexpectedToken;
-            }
+            try self.matchNextAndAdvance(tok.TokenType.COLON);
+            try self.matchNextAndAdvance(tok.TokenType.Type);
+
             type_annotation = self.parsePrimitiveTypeAnnotation();
             try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
                 .ident = heap_ident,
@@ -629,14 +587,12 @@ pub const Parser = struct {
             } });
         }
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.RPAREN)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.RPAREN);
 
         return parameters;
     }
 
-    fn parseArrayLiteral(self: *Parser) !ast.AstNode {
+    fn parseArrayLiteral(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const lbracket_token = self.currentToken();
         const elements = try self.parseExpressionList(tok.TokenType.RBRACKET);
 
@@ -646,7 +602,7 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseExpressionList(self: *Parser, end: tok.TokenType) !std.ArrayList(ast.AstNode) {
+    fn parseExpressionList(self: *Parser, end: tok.TokenType) error{ OutOfMemory, UnexpectedToken }!std.ArrayList(ast.AstNode) {
         var expressions = std.ArrayList(ast.AstNode).init(self.alloc);
         if (self.matchPeekTokenType(end)) {
             self.advance();
@@ -654,28 +610,22 @@ pub const Parser = struct {
         }
 
         self.advance();
-        var expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        var expression = try self.parseExpression(Precedence.LOWEST);
         try expressions.append(expression);
 
         while (self.matchPeekTokenType(tok.TokenType.COMMA)) {
             self.advance();
             self.advance();
-            expression = try self.parseExpression(Precedence.LOWEST) orelse {
-                return error.NullExpressionParsed;
-            };
+            expression = try self.parseExpression(Precedence.LOWEST);
             try expressions.append(expression);
         }
 
-        if (!try self.matchNextAndAdvance(end)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(end);
 
         return expressions;
     }
 
-    fn parseFunctionCall(self: *Parser, function_ident: ast.AstNode) !ast.AstNode {
+    fn parseFunctionCall(self: *Parser, function_ident: ast.AstNode) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const lparen_token = self.currentToken();
         const function_arguments = try self.parseExpressionList(tok.TokenType.RPAREN);
 
@@ -689,20 +639,16 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseIndexExpression(self: *Parser, indexed_exp: ast.AstNode) !ast.AstNode {
+    fn parseIndexExpression(self: *Parser, indexed_exp: ast.AstNode) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const lbracket_token = self.currentToken();
         if (self.matchPeekTokenType(tok.TokenType.RBRACKET)) {
             return error.UnexpectedToken;
         }
         self.advance();
 
-        const indexing_expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const indexing_expression = try self.parseExpression(Precedence.LOWEST);
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.RBRACKET)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.RBRACKET);
 
         const heap_indexed_exp = try self.alloc.create(ast.AstNode);
         heap_indexed_exp.* = indexed_exp;
@@ -724,19 +670,15 @@ pub const Parser = struct {
         };
     }
 
-    fn parseWhileLoopStatement(self: *Parser) !ast.AstNode {
+    fn parseWhileLoopStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const while_token = self.currentToken();
         self.advance();
 
-        const condition_expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const condition_expression = try self.parseExpression(Precedence.LOWEST);
         const heap_condition_expression = try self.alloc.create(ast.AstNode);
         heap_condition_expression.* = condition_expression;
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.LBRACE)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.LBRACE);
 
         const block_statements = try self.parseBlockStatements();
         const heap_block_statements = try self.alloc.create(ast.AstNode);
@@ -749,24 +691,20 @@ pub const Parser = struct {
         } };
     }
 
-    fn parseAssignmentStatement(self: *Parser) !ast.AstNode {
+    fn parseAssignmentStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const identifier = try self.parseIdentifier();
         self.advance();
         //skip equal sign
         self.advance();
 
-        const expression = try self.parseExpression(Precedence.LOWEST) orelse {
-            return error.NullExpressionParsed;
-        };
+        const expression = try self.parseExpression(Precedence.LOWEST);
 
         const heap_identifier = try self.alloc.create(ast.AstNode);
         heap_identifier.* = identifier;
         const heap_expression = try self.alloc.create(ast.AstNode);
         heap_expression.* = expression;
 
-        if (!try self.matchNextAndAdvance(tok.TokenType.SEMICOLON)) {
-            return error.UnexpectedToken;
-        }
+        try self.matchNextAndAdvance(tok.TokenType.SEMICOLON);
 
         return ast.AstNode{
             .AssignmentStatement = ast.AssignmentStatement{
