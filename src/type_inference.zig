@@ -100,6 +100,13 @@ pub const TypeChecker = struct {
                 _ = wls;
                 unreachable;
             },
+            .AssignmentStatement => |*as| {
+                const ident_type = self.type_env.lookup(as.name.Identifier.value).?;
+                const expr_type = (try self.inferAndCheck(as.expression)).?;
+                if (!std.meta.eql(ident_type, expr_type)) {
+                    return null;
+                }
+            },
             .FunctionLiteral => |*fl| {
                 const heap_inner_ftype = try self.allocator.create(ast.FunctionType);
                 heap_inner_ftype.* = try ast.FunctionType.init(&fl.parameters, fl.return_type, self.allocator);
@@ -455,5 +462,39 @@ test "Infer mixed expressions" {
 
         try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected.PrimitiveType, checker.type_env.lookup("foo").?.PrimitiveType);
+    }
+}
+
+test "Infer assignment statements" {
+    const TestCase = struct {
+        input: []const u8,
+        expected: ast.Type,
+    };
+    const tests = [_]TestCase{
+        .{
+            .expected = ast.Type{ .PrimitiveType = ast.PrimitiveType.Float },
+            .input = "let a = 1.0; a = a + 1;",
+        },
+        .{
+            .expected = ast.Type{ .PrimitiveType = ast.PrimitiveType.Bool },
+            .input = "let a = false; a = true;",
+        },
+        .{
+            .expected = ast.Type{ .PrimitiveType = ast.PrimitiveType.String },
+            .input = "let a = \"foo\"; a = \"bar\";",
+        },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var program = try parse_program(test_case.input, allocator);
+        var checker = try TypeChecker.init(allocator);
+        _ = try checker.inferAndCheck(&program);
+
+        try test_errors(&checker.errors_list);
+        try std.testing.expectEqual(test_case.expected.PrimitiveType, checker.type_env.lookup("a").?.PrimitiveType);
     }
 }
