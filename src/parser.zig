@@ -281,7 +281,6 @@ pub const Parser = struct {
 
     fn parseExpressionStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const token = self.currentToken();
-        //FIXME: this here is still optional
         const expression = try self.parseExpression(Precedence.LOWEST);
         const heap_expression = try self.alloc.create(ast.AstNode);
         heap_expression.* = expression;
@@ -851,11 +850,9 @@ test "Test parse let statement" {
 
         var parser = try Parser.init(slice_tokens, allocator);
 
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
+
         try std.testing.expectEqual(1, program.Program.program.items.len);
         try TestHelpers.test_let_statement(&program.Program.program.items[0], test_case.expected_identifier);
 
@@ -880,11 +877,8 @@ test "Test parse identifier" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -904,11 +898,8 @@ test "Test parse string literals" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -939,11 +930,8 @@ test "Parse numeric expressions" {
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
         var parser = try Parser.init(slice_tokens, allocator);
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
         try std.testing.expectEqual(1, program.Program.program.items.len);
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -980,11 +968,8 @@ test "Parse prefix expressions" {
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
         var parser = try Parser.init(slice_tokens, allocator);
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression.Prefix;
         try std.testing.expectEqualStrings(expression.operator.toString(), test_case.operator.toString());
@@ -1014,11 +999,8 @@ test "Parse boolean expression" {
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
         var parser = try Parser.init(slice_tokens, allocator);
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
         try TestHelpers.test_literal_expression(expression, test_case.value);
@@ -1062,11 +1044,8 @@ test "Parse infix expression" {
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
         var parser = try Parser.init(slice_tokens, allocator);
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
         try std.testing.expectEqual(1, program.Program.program.items.len);
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression.Infix;
@@ -1093,11 +1072,8 @@ test "Parse if expressions" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression.If;
@@ -1124,11 +1100,8 @@ test "Parse function literal" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const function_literal = program.Program.program.items[0].FunctionLiteral;
@@ -1196,11 +1169,8 @@ test "Parse array literals" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const array_literal = &program.Program.program.items[0].ExpressionStatement.expression.ArrayLiteral;
@@ -1220,11 +1190,8 @@ test "Parse function call" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const function_call = &program.Program.program.items[0].ExpressionStatement.expression.FunctionCall;
@@ -1248,11 +1215,8 @@ test "Parse index expression" {
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        TestHelpers.test_parse_errors(&parser) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const index_expression = &program.Program.program.items[0].ExpressionStatement.expression.Index;
@@ -1287,11 +1251,8 @@ test "Parse return statement" {
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
         var parser = try Parser.init(slice_tokens, allocator);
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
         try std.testing.expectEqual(1, program.Program.program.items.len);
         switch (test_case.expected_value) {
             inline else => |v| try TestHelpers.test_literal_expression(program.Program.program.items[0].ReturnStatement.return_value, v),
@@ -1321,11 +1282,9 @@ test "Parse while loop statement" {
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
         var parser = try Parser.init(slice_tokens, allocator);
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
+
         try std.testing.expectEqual(1, program.Program.program.items.len);
         const statement = program.Program.program.items[0].WhileLoopStatement;
         try TestHelpers.test_literal_expression(statement.condition.Infix.left, test_case.left_cond_exp);
@@ -1379,11 +1338,9 @@ test "Parse assigment statement" {
 
         var parser = try Parser.init(slice_tokens, allocator);
 
-        const program = parser.parse() catch |err| {
-            //FIXME: stop ignoring the error once the error diagnostics are complete
-            TestHelpers.test_parse_errors(&parser) catch {};
-            return err;
-        };
+        const program = try parser.parse();
+        try TestHelpers.test_parse_errors(&parser);
+
         try std.testing.expectEqual(1, program.Program.program.items.len);
         try TestHelpers.test_identifier(program.Program.program.items[0].AssignmentStatement.name, test_case.expected_identifier);
 
