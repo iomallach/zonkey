@@ -197,7 +197,6 @@ pub const Lexer = struct {
                 const literal_and_span = self.consume_while(Lexer.not_quote_and_end);
                 token = tok.Token{ .token_type = tok.TokenType.STRING, .literal = literal_and_span.literal, .span = literal_and_span.span };
                 if (self.char() != '"') {
-                    //FIXME: error message is broken, see go implementation
                     try self.report_error(self.char(), '"', &token);
                 }
                 // not skipping " at the end due to the advance after switch

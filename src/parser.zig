@@ -54,7 +54,6 @@ pub const Parser = struct {
     }
 
     fn registerParsers(self: *Parser) !void {
-        //TODO: squash numeric
         try self.prefix_fns.put(tok.TokenType.INT, Parser.parseIntegerLiteral);
         try self.prefix_fns.put(tok.TokenType.FLOAT, Parser.parseFloatLiteral);
         try self.prefix_fns.put(tok.TokenType.IDENT, Parser.parseIdentifier);
@@ -134,7 +133,6 @@ pub const Parser = struct {
 
     fn peekError(self: *Parser, tt: tok.TokenType) !void {
         const token = self.peekToken();
-        // FIXME: how and when do I dealloc this?
         const spaces = try self.alloc.alloc(u8, token.span.start);
         @memset(spaces, ' ');
 
@@ -201,7 +199,13 @@ pub const Parser = struct {
             tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
             tok.TokenType.RETURN => try self.parseReturnStatement(),
             tok.TokenType.WHILE => try self.parseWhileLoopStatement(),
-            //TODO: TokenType.Ident and peek == EQUAL => parse assignment statement
+            tok.TokenType.IDENT => blk: {
+                if (self.matchPeekTokenType(tok.TokenType.EQUAL)) {
+                    break :blk try self.parseAssignmentStatement();
+                } else {
+                    break :blk try self.parseExpressionStatement();
+                }
+            },
             else => try self.parseExpressionStatement(),
         };
     }
@@ -743,6 +747,34 @@ pub const Parser = struct {
             .condition = heap_condition_expression,
             .statements = heap_block_statements,
         } };
+    }
+
+    fn parseAssignmentStatement(self: *Parser) !ast.AstNode {
+        const identifier = try self.parseIdentifier();
+        self.advance();
+        //skip equal sign
+        self.advance();
+
+        const expression = try self.parseExpression(Precedence.LOWEST) orelse {
+            return error.NullExpressionParsed;
+        };
+
+        const heap_identifier = try self.alloc.create(ast.AstNode);
+        heap_identifier.* = identifier;
+        const heap_expression = try self.alloc.create(ast.AstNode);
+        heap_expression.* = expression;
+
+        if (!try self.matchNextAndAdvance(tok.TokenType.SEMICOLON)) {
+            return error.UnexpectedToken;
+        }
+
+        return ast.AstNode{
+            .AssignmentStatement = ast.AssignmentStatement{
+                .token = identifier.Identifier.token,
+                .name = heap_identifier,
+                .expression = heap_expression,
+            },
+        };
     }
 };
 
@@ -1361,5 +1393,66 @@ test "Parse while loop statement" {
         try TestHelpers.test_literal_expression(statement.condition.Infix.left, test_case.left_cond_exp);
         try TestHelpers.test_literal_expression(statement.condition.Infix.right, test_case.right_cond_exp);
         try std.testing.expectEqual(test_case.n_statements, statement.statements.BlockStatement.statements.items.len);
+    }
+}
+
+test "Parse assigment statement" {
+    const Value = union(enum) {
+        integer: i64,
+        string: []const u8,
+    };
+    const TestCase = struct {
+        input: []const u8,
+        expected_identifier: []const u8,
+        expected_value: Value,
+    };
+    const tests = [_]TestCase{
+        .{
+            .input = "x = 5;",
+            .expected_identifier = "x",
+            .expected_value = Value{ .integer = 5 },
+        },
+        .{
+            .input = "y = 10;",
+            .expected_identifier = "y",
+            .expected_value = Value{ .integer = 10 },
+        },
+        .{
+            .input = "foobar = y;",
+            .expected_identifier = "foobar",
+            .expected_value = Value{ .string = "y" },
+        },
+        .{
+            .input = "barbaz = \"str\";",
+            .expected_identifier = "barbaz",
+            .expected_value = Value{ .string = "str" },
+        },
+        //TODO: still need to implement function literal parsing
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+
+        const program = parser.parse() catch |err| {
+            //FIXME: stop ignoring the error once the error diagnostics are complete
+            TestHelpers.test_parse_errors(&parser) catch {};
+            return err;
+        };
+        try std.testing.expectEqual(1, program.Program.program.items.len);
+        try TestHelpers.test_identifier(program.Program.program.items[0].AssignmentStatement.name, test_case.expected_identifier);
+
+        const expression = program.Program.program.items[0].AssignmentStatement.expression;
+        switch (test_case.expected_value) {
+            .integer => |v| try TestHelpers.test_literal_expression(expression, v),
+            .string => |v| try TestHelpers.test_literal_expression(expression, v),
+        }
     }
 }

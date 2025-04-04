@@ -136,6 +136,7 @@ const AstNodeKind = enum {
     ExpressionStatement,
     BlockStatement,
     WhileLoopStatement,
+    AssignmentStatement,
     // Expressions
     Identifier,
     IntegerLiteral,
@@ -159,6 +160,7 @@ pub const AstNode = union(AstNodeKind) {
     ExpressionStatement: ExpressionStatement,
     BlockStatement: BlockStatement,
     WhileLoopStatement: WhileLoopStatement,
+    AssignmentStatement: AssignmentStatement,
     Identifier: Identifier,
     IntegerLiteral: IntegerLiteral,
     FloatLiteral: FloatLiteral,
@@ -290,6 +292,12 @@ pub const WhileLoopStatement = struct {
     token: tok.Token,
     condition: *AstNode, // Expression
     statements: *AstNode, // BlockStatement
+};
+
+pub const AssignmentStatement = struct {
+    token: tok.Token,
+    name: *AstNode,
+    expression: *AstNode,
 };
 
 pub const Identifier = struct {
