@@ -80,6 +80,7 @@ test "Test string literals error" {
     _ = try lex.next_token();
 
     try std.testing.expectEqual(1, lex.errors_list.items.len);
+    _ = std.mem.indexOf(u8, lex.errors_list.items[0], "Expected next char to be \"").?;
 }
 
 test "Test keywords" {

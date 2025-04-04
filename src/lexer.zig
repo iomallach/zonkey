@@ -13,6 +13,8 @@ pub const Lexer = struct {
 
     errors_list: std.ArrayList([]const u8),
 
+    allocator: std.mem.Allocator,
+
     pub fn init(chars: []const u8, alloc: std.mem.Allocator) Lexer {
         return .{
             .chars = chars,
@@ -20,6 +22,7 @@ pub const Lexer = struct {
             .cur_line = 1,
             .cur_line_start = 0,
             .errors_list = std.ArrayList([]const u8).init(alloc),
+            .allocator = alloc,
         };
     }
 
@@ -33,6 +36,26 @@ pub const Lexer = struct {
 
     fn advance(self: *Lexer) void {
         self.position += 1;
+    }
+
+    fn report_error(self: *Lexer, got: u8, expected: u8, token: *tok.Token) !void {
+        const spaces = try self.allocator.alloc(u8, token.span.start);
+        @memset(spaces, ' ');
+
+        const error_message = try std.fmt.allocPrint(self.allocator,
+            \\ Expected next char to be {c}, got {c} instead at line {d}, column {d}
+            \\ {s}
+            \\ {s} ^here
+            \\
+        , .{
+            expected,
+            got,
+            token.span.line_number,
+            token.span.start,
+            token.span.source_chunk,
+            spaces,
+        });
+        try self.errors_list.append(error_message);
     }
 
     fn char(self: *Lexer) u8 {
@@ -175,7 +198,7 @@ pub const Lexer = struct {
                 token = tok.Token{ .token_type = tok.TokenType.STRING, .literal = literal_and_span.literal, .span = literal_and_span.span };
                 if (self.char() != '"') {
                     //FIXME: error message is broken, see go implementation
-                    try self.errors_list.append("FIXME: need an actual error");
+                    try self.report_error(self.char(), '"', &token);
                 }
                 // not skipping " at the end due to the advance after switch
             },
