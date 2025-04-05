@@ -8,7 +8,7 @@ const infixParserFn = fn (*Parser, ast.AstNode) error{ OutOfMemory, UnexpectedTo
 const Precedence = enum(u8) {
     LOWEST = 1,
     EQUALS, // ==
-    LESSGREATER, // <, >
+    LESSGREATER, // <, >, >=, <=
     SUM, // +
     PRODUCT, // *
     PREFIX, // -X, !X
@@ -21,7 +21,9 @@ fn precedence(tt: tok.TokenType) Precedence {
         .EQUAL_EQUAL => Precedence.EQUALS,
         .BANG_EQUAL => Precedence.EQUALS,
         .LESS => Precedence.LESSGREATER,
+        .LESS_EQUAL => Precedence.LESSGREATER,
         .GREATER => Precedence.LESSGREATER,
+        .GREATER_EQUAL => Precedence.LESSGREATER,
         .PLUS => Precedence.SUM,
         .MINUS => Precedence.SUM,
         .SLASH => Precedence.PRODUCT,
@@ -72,7 +74,9 @@ pub const Parser = struct {
         try self.infix_fns.put(tok.TokenType.ASTERISK, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.SLASH, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.GREATER, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.GREATER_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.LESS, Parser.parseInfixExpression);
+        try self.infix_fns.put(tok.TokenType.LESS_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.EQUAL_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.BANG_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.LPAREN, Parser.parseFunctionCall);
@@ -181,7 +185,9 @@ pub const Parser = struct {
         while (!self.matchCurrentTokenType(tok.TokenType.EOF)) {
             const stmt = try self.parseStatement();
 
-            try program.addStatement(stmt);
+            if (stmt) |s| {
+                try program.addStatement(s);
+            }
             self.advance();
         }
 
@@ -190,7 +196,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseStatement(self: *Parser) error{OutOfMemory}!ast.AstNode {
+    fn parseStatement(self: *Parser) error{OutOfMemory}!?ast.AstNode {
         const node = switch (self.currentToken().token_type) {
             tok.TokenType.LET => self.parseLetStatement(),
             tok.TokenType.FUNCTION => self.parseFunctionDeclaration(),
@@ -209,7 +215,7 @@ pub const Parser = struct {
             switch (err) {
                 error.OutOfMemory => |oom| return oom,
                 //TODO: skip to the next statement, e.g. next ;
-                error.UnexpectedToken => @panic("FUCKED UP"),
+                error.UnexpectedToken => return null,
             }
         };
     }
@@ -474,7 +480,9 @@ pub const Parser = struct {
             // FIXME: should record an error and skip to the next statement
             //TODO: take a second look at how this should be handled
             const statement = try self.parseStatement();
-            try block_statements.addStatement(statement);
+            if (statement) |s| {
+                try block_statements.addStatement(s);
+            }
             // we're looking at the last token after each parselet, so skipping it
             self.advance();
         }
@@ -1029,7 +1037,9 @@ test "Parse infix expression" {
         .{ .input = "5 * 5;", .operator = ast.BinaryOp.Multiply, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
         .{ .input = "5 / 5;", .operator = ast.BinaryOp.Divide, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
         .{ .input = "5 > 5;", .operator = ast.BinaryOp.Greater, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 >= 5;", .operator = ast.BinaryOp.GreaterEqual, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
         .{ .input = "5 < 5;", .operator = ast.BinaryOp.Less, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
+        .{ .input = "5 <= 5;", .operator = ast.BinaryOp.LessEqual, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
         .{ .input = "5 == 5;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
         .{ .input = "5 != 5;", .operator = ast.BinaryOp.NotEqual, .left = Value{ .integer = 5 }, .right = Value{ .integer = 5 } },
         .{ .input = "true == true;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .boolean = true }, .right = Value{ .boolean = true } },

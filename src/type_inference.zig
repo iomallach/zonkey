@@ -250,11 +250,8 @@ fn parse_program(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
 
     const slice_tokens = try lexed_tokens.toOwnedSlice();
     var parser = try Parser.init(slice_tokens, allocator);
-    const program = parser.parse() catch |err| {
-        //FIXME: stop ignoring the error once the error diagnostics are complete
-        test_errors(parser.errors()) catch {};
-        return err;
-    };
+    const program = try parser.parse();
+    try test_errors(parser.errors());
 
     return program;
 }
@@ -282,8 +279,8 @@ test "Infer simple expressions" {
         .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 > 3" },
         .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 < 3" },
         //TODO: unsupported for now
-        // .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 >= 3" },
-        // .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 <= 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 >= 3" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "5 <= 3" },
         .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true == false" },
         .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "true == true" },
         .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "false == false" },

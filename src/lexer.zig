@@ -182,6 +182,7 @@ pub const Lexer = struct {
                 if (self.peek() == '=') {
                     span = self.token_span(self.position, self.position + 1);
                     token = tok.Token{ .token_type = tok.TokenType.GREATER_EQUAL, .literal = self.slice_literal(2), .span = span };
+                    self.advance();
                 } else {
                     span = self.token_span(self.position, self.position);
                     token = tok.Token{ .token_type = tok.TokenType.GREATER, .literal = self.slice_literal(1), .span = span };
