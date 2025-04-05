@@ -86,14 +86,18 @@ pub const TypeChecker = struct {
                 }
             },
             .ExpressionStatement => |*es| {
-                _ = try self.inferAndCheck(es.expression);
+                return try self.inferAndCheck(es.expression);
             },
             .BlockStatement => |*bs| {
                 try self.type_env.enterScope();
+                var last_stmt_type: ?ast.Type = null;
+
                 for (bs.statements.items) |*stmt| {
-                    _ = try self.inferAndCheck(stmt);
+                    last_stmt_type = try self.inferAndCheck(stmt);
                 }
                 self.type_env.exitScope();
+
+                return last_stmt_type;
             },
             .WhileLoopStatement => |wls| {
                 // TODO: implement later
@@ -148,11 +152,19 @@ pub const TypeChecker = struct {
                 if (cond_type != .PrimitiveType or cond_type.PrimitiveType != .Bool) {
                     try self.errors_list.append("Expected boolean expression");
                 }
-                //TODO: we allow if expressions, but for now this doesn't infer cons/alt types
-                _ = try self.inferAndCheck(iff.consequence);
+
+                const cons_type = try self.inferAndCheck(iff.consequence);
+                var alt_type: ?ast.Type = null;
                 if (iff.alternative) |alt| {
-                    _ = try self.inferAndCheck(alt);
+                    alt_type = try self.inferAndCheck(alt);
+                    if (cons_type != null and alt_type != null and std.meta.eql(cons_type, alt_type)) {
+                        return cons_type.?;
+                    }
+                    // TODO: else if one of them null, report an error
+                    return null;
                 }
+
+                return cons_type;
             },
             .Prefix => |pref| {
                 const exp_type = (try self.inferAndCheck(pref.right)).?;
