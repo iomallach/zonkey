@@ -255,7 +255,6 @@ pub const Parser = struct {
             .Identifier = ast.Identifier{
                 .token = ident_token,
                 .value = ident_token.literal,
-                .inferred_type = null,
             },
         };
 
@@ -327,24 +326,26 @@ pub const Parser = struct {
 
     fn parseIntegerLiteral(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.AstNode{ .IntegerLiteral = ast.IntegerLiteral{
-            .token = token,
-            .value = std.fmt.parseInt(i64, token.literal, 10) catch {
-                unreachable;
+        return ast.AstNode{
+            .IntegerLiteral = ast.IntegerLiteral{
+                .token = token,
+                .value = std.fmt.parseInt(i64, token.literal, 10) catch {
+                    unreachable;
+                },
             },
-            .inferred_type = null,
-        } };
+        };
     }
 
     fn parseFloatLiteral(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.AstNode{ .FloatLiteral = ast.FloatLiteral{
-            .token = token,
-            .value = std.fmt.parseFloat(f64, token.literal) catch {
-                unreachable;
+        return ast.AstNode{
+            .FloatLiteral = ast.FloatLiteral{
+                .token = token,
+                .value = std.fmt.parseFloat(f64, token.literal) catch {
+                    unreachable;
+                },
             },
-            .inferred_type = null,
-        } };
+        };
     }
 
     fn parseIdentifier(self: *Parser) !ast.AstNode {
@@ -352,17 +353,17 @@ pub const Parser = struct {
         return ast.AstNode{ .Identifier = ast.Identifier{
             .token = token,
             .value = token.literal,
-            .inferred_type = null,
         } };
     }
 
     fn parseStringLiteral(self: *Parser) !ast.AstNode {
         const token = self.currentToken();
-        return ast.AstNode{ .StringLiteral = ast.StringLiteral{
-            .token = token,
-            .value = token.literal,
-            .inferred_type = null,
-        } };
+        return ast.AstNode{
+            .StringLiteral = ast.StringLiteral{
+                .token = token,
+                .value = token.literal,
+            },
+        };
     }
 
     fn parsePrefixExpression(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
@@ -390,7 +391,6 @@ pub const Parser = struct {
             .BooleanLiteral = ast.BooleanLiteral{
                 .token = token,
                 .value = self.matchCurrentTokenType(tok.TokenType.TRUE),
-                .inferred_type = null,
             },
         };
     }
@@ -561,7 +561,6 @@ pub const Parser = struct {
         var ident = ast.Identifier{
             .token = self.currentToken(),
             .value = self.currentToken().literal,
-            .inferred_type = null,
         };
         var heap_ident = try self.alloc.create(ast.AstNode);
         heap_ident.* = ast.AstNode{
@@ -581,7 +580,10 @@ pub const Parser = struct {
             self.advance();
             try self.matchNextAndAdvance(tok.TokenType.IDENT);
 
-            ident = ast.Identifier{ .token = self.currentToken(), .value = self.currentToken().literal, .inferred_type = null };
+            ident = ast.Identifier{
+                .token = self.currentToken(),
+                .value = self.currentToken().literal,
+            };
             heap_ident = try self.alloc.create(ast.AstNode);
             heap_ident.* = ast.AstNode{
                 .Identifier = ident,

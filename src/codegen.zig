@@ -118,7 +118,7 @@ pub const Compiler = struct {
             },
             .LetStatement => |ls| {
                 std.debug.print("Visiting let statement\n", .{});
-                const decl_type = self.getLLVMType(ls.inferred_type.?);
+                const decl_type = self.getLLVMType(ls.name.Identifier.inferred_type.?);
                 const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
                 const temp_builder = c.LLVMCreateBuilder();
                 defer c.LLVMDisposeBuilder(temp_builder);
@@ -128,7 +128,7 @@ pub const Compiler = struct {
                 const alloca = c.LLVMBuildAlloca(temp_builder, decl_type, name.ptr);
                 std.debug.print("Identifier value: {s}\n", .{ls.name.Identifier.token.literal[0..]});
 
-                const init_value = try self.codegen(ls.value);
+                const init_value = try self.codegen(ls.expression);
                 _ = c.LLVMBuildStore(self.builder, init_value, alloca);
                 try self.symbol_table.define(Symbol{
                     .name = name,
@@ -168,6 +168,8 @@ pub const Compiler = struct {
             },
         }
     }
+
+    fn compileBin(self: *Compiler, left: *ast.AstNode, right: *ast.AstNode, operator: ast.BinaryOp) !c.LLVMValueRef {}
 
     fn compileBinOp(self: *Compiler, left: c.LLVMValueRef, right: c.LLVMValueRef, operator: []const u8) !c.LLVMValueRef {
         const type_kind_left = c.LLVMGetTypeKind(c.LLVMTypeOf(left));

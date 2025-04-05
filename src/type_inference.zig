@@ -1,59 +1,87 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 
-const TypeEnv = struct {
-    allocator: std.mem.Allocator,
-    scopes: std.ArrayList(std.StringHashMap(ast.Type)),
+pub const Symbol = struct {
+    name: []const u8,
+    typ: ast.Type,
+};
 
-    pub fn init(allocator: std.mem.Allocator) !TypeEnv {
-        const scopes = std.ArrayList(std.StringHashMap(ast.Type)).init(allocator);
-        var type_env = TypeEnv{
-            .allocator = allocator,
-            .scopes = scopes,
+const Scope = struct {
+    parent: ?*Scope,
+    names: std.StringHashMap(Symbol),
+
+    pub fn init(parent: ?*Scope, allocator: std.mem.Allocator) Scope {
+        return Scope{
+            .parent = parent,
+            .names = std.StringHashMap(Symbol).init(allocator),
         };
-        try type_env.enterScope();
-        return type_env;
     }
 
-    pub fn enterScope(self: *TypeEnv) !void {
-        const new_scope = std.StringHashMap(ast.Type).init(self.allocator);
-        try self.scopes.append(new_scope);
+    pub fn define(self: *Scope, name: []const u8, typ: ast.Type) error{OutOfMemory}!*Symbol {
+        try self.names.putNoClobber(Symbol{ .name = name, .typ = typ });
+        return self.names.get(name).?;
     }
 
-    pub fn exitScope(self: *TypeEnv) void {
-        var cur_scope = self.scopes.pop().?;
-        cur_scope.deinit();
-    }
-
-    pub fn define(self: *TypeEnv, name: []const u8, typ: ast.Type) !void {
-        var cur_scope = &self.scopes.items[self.scopes.items.len - 1];
-        try cur_scope.putNoClobber(name, typ);
-    }
-
-    pub fn lookup(self: *TypeEnv, key: []const u8) ?ast.Type {
-        var nth_scope = self.scopes.items.len;
-
-        while (nth_scope >= 0) {
-            nth_scope -= 1;
-            if (self.scopes.items[nth_scope].get(key)) |typ| {
-                return typ;
-            }
+    pub fn resolve(self: *Scope, name: []const u8) error{UnboundIdentifier}!*Symbol {
+        if (self.names.get(name)) |typ| {
+            return typ;
         }
+        if (self.parent) |p| {
+            return p.resolve(name);
+        }
+        return error.UnboundIdentifier;
+    }
+};
 
-        return null;
+const TypeEnvironment = struct {
+    allocator: std.mem.Allocator,
+    current_scope: *Scope,
+    types: std.AutoHashMap(*ast.AstNode, ast.Type), // types of expression, e.g. infix, prefix, calls
+    defs: std.AutoHashMap(*ast.AstNode, *Symbol), // mapping from definition to symbol
+    uses: std.AutoHashMap(*ast.AstNode, *Symbol), // mapping from reference to symbol, symbol taken from scopes
+
+    pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!TypeEnvironment {
+        const current_scope = try allocator.create(Scope);
+        current_scope.* = Scope.init(null, allocator);
+
+        return TypeEnvironment{
+            .allocator = allocator,
+            .current_scope = current_scope,
+            .types = std.AutoHashMap(*ast.AstNode, ast.Type).init(allocator),
+            .defs = std.AutoHashMap(*ast.AstNode, *Symbol).init(allocator),
+            .uses = std.AutoHashMap(*ast.AstNode, *Symbol).init(allocator),
+        };
+    }
+
+    pub fn enterScope(self: *TypeEnvironment) error{OutOfMemory}!void {
+        const new_scope = try self.allocator.create(Scope);
+        new_scope.* = Scope.init(self.current_scope, self.allocator);
+        self.current_scope = new_scope;
+    }
+
+    pub fn exitScope(self: *TypeEnvironment) void {
+        self.current_scope = self.current_scope.parent.?;
+    }
+
+    pub fn defineSymbol(self: *TypeEnvironment, name: []const u8, typ: ast.Type) error{OutOfMemory}!*Symbol {
+        return self.current_scope.define(name, typ);
+    }
+
+    pub fn resolveSymbol(self: *TypeEnvironment, name: []const u8) error{UnboundIdentifier}!*Symbol {
+        return self.current_scope.resolve(name);
     }
 };
 
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
-    type_env: TypeEnv,
+    type_env: TypeEnvironment,
     errors_list: std.ArrayList([]const u8),
     current_function: ?*ast.FunctionLiteral,
 
-    pub fn init(allocator: std.mem.Allocator) !TypeChecker {
+    pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!TypeChecker {
         return TypeChecker{
             .allocator = allocator,
-            .type_env = try TypeEnv.init(allocator),
+            .type_env = try TypeEnvironment.init(allocator),
             .errors_list = std.ArrayList([]const u8).init(allocator),
             .current_function = null,
         };
@@ -68,7 +96,9 @@ pub const TypeChecker = struct {
             },
             .LetStatement => |*ls| {
                 const exp_type = (try self.inferAndCheck(ls.expression)).?;
-                if (ls.name.Identifier.inferred_type) |it| {
+                try self.type_env.types.putNoClobber(ls.expression, exp_type);
+
+                if (ls.inferred_type) |it| {
                     if (!std.meta.eql(exp_type, it)) {
                         try self.errors_list.append("BAD ERROR");
                         return null;
@@ -77,16 +107,21 @@ pub const TypeChecker = struct {
                     ls.inferred_type = exp_type;
                 }
 
-                try self.type_env.define(ls.name.Identifier.value, ls.inferred_type.?);
+                const symbol = try self.type_env.defineSymbol(ls.name.Identifier.value, exp_type);
+                try self.type_env.defs.putNoClobber(ls.name, symbol);
             },
             .ReturnStatement => |*r| {
                 const ret_type = (try self.inferAndCheck(r.return_value)).?;
                 if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
                     try self.errors_list.append("BAD ERROR");
+                    return null;
                 }
+                try self.type_env.types.putNoClobber(r.return_value, ret_type);
             },
             .ExpressionStatement => |*es| {
-                return try self.inferAndCheck(es.expression);
+                const exp_type = try self.inferAndCheck(es.expression);
+                self.type_env.types.putNoClobber(es.expression, exp_type);
+                return exp_type;
             },
             .BlockStatement => |*bs| {
                 try self.type_env.enterScope();
@@ -105,11 +140,12 @@ pub const TypeChecker = struct {
                 unreachable;
             },
             .AssignmentStatement => |*as| {
-                const ident_type = self.type_env.lookup(as.name.Identifier.value).?;
+                const ident_type = (try self.inferAndCheck(as.name)).?;
                 const expr_type = (try self.inferAndCheck(as.expression)).?;
                 if (!std.meta.eql(ident_type, expr_type)) {
                     return null;
                 }
+                try self.type_env.types.putNoClobber(as.expression, expr_type);
             },
             .FunctionLiteral => |*fl| {
                 const heap_inner_ftype = try self.allocator.create(ast.FunctionType);
@@ -117,13 +153,15 @@ pub const TypeChecker = struct {
                 const func_type = ast.Type{
                     .Function = heap_inner_ftype,
                 };
-                try self.type_env.define(fl.name.?, func_type);
+                const symbol = try self.type_env.defineSymbol(fl.name.?, func_type);
+                try self.type_env.defs.putNoClobber(program, symbol);
 
                 try self.type_env.enterScope();
                 self.current_function = fl;
                 // define parameters
                 for (fl.parameters.items) |*p| {
-                    try self.type_env.define(p.FunctionParameter.ident.Identifier.value, p.FunctionParameter.inferred_type);
+                    const f_symbol = try self.type_env.defineSymbol(p.FunctionParameter.ident.Identifier.value, p.FunctionParameter.inferred_type);
+                    try self.type_env.defs.putNoClobber(p, f_symbol);
                 }
                 // check statements
                 for (fl.body.BlockStatement.statements.items) |*stmt| {
@@ -131,24 +169,31 @@ pub const TypeChecker = struct {
                 }
                 self.current_function = null;
                 self.type_env.exitScope();
+                return func_type;
             },
             .ArrayLiteral => unreachable, //TODO: implement later
             .FunctionCall => |*fc| {
-                const func = self.type_env.lookup(fc.function.Identifier.value).?;
+                const func = (try self.inferAndCheck(fc.function)).?;
                 if (func.Function.arg_types.items.len != fc.arguments.items.len) {
                     try self.errors_list.append("Argument number mismatch");
                     return null;
                 }
                 for (func.Function.arg_types.items, 0..) |p, i| {
                     const passed_type = (try self.inferAndCheck(&fc.arguments.items[i])).?;
+                    try self.type_env.types.putNoClobber(&fc.arguments.items[i]);
+
                     if (!std.meta.eql(p, passed_type)) {
                         try self.errors_list.append("Function parameter type mismatch");
                     }
                 }
+                const symbol = try self.type_env.resolveSymbol(fc.function.FunctionLiteral.name.?);
+                try self.type_env.uses.putNoClobber(program, symbol);
+
                 return func.Function.return_type;
             },
             .If => |iff| {
                 const cond_type = (try self.inferAndCheck(iff.condition)).?;
+                try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .PrimitiveType or cond_type.PrimitiveType != .Bool) {
                     try self.errors_list.append("Expected boolean expression");
                 }
@@ -166,8 +211,9 @@ pub const TypeChecker = struct {
 
                 return cons_type;
             },
-            .Prefix => |pref| {
+            .Prefix => |*pref| {
                 const exp_type = (try self.inferAndCheck(pref.right)).?;
+                try self.type_env.types.putNoClobber(pref.right, exp_type);
                 switch (exp_type) {
                     .PrimitiveType => |pt| {
                         if (pref.operator == .Minus and (pt == .Float or pt == .Integer)) {
@@ -183,6 +229,9 @@ pub const TypeChecker = struct {
             .Infix => |infx| {
                 const left_type = (try self.inferAndCheck(infx.left)).?;
                 const right_type = (try self.inferAndCheck(infx.right)).?;
+                try self.type_env.types.putNoClobber(infx.left, left_type);
+                try self.type_env.types.putNoClobber(infx.right, right_type);
+
                 //infix on functions doesn't make sense
                 if (left_type == .Function or right_type == .Function) {
                     try self.errors_list.append("Invalid infix expression");
@@ -200,21 +249,24 @@ pub const TypeChecker = struct {
                             return null;
                         }
                         // TODO: this is not ideal, but keeping for simplicity at the moment
-                        return ast.Type{ .PrimitiveType = ast.PrimitiveType.Float };
+                        const typ = ast.Type{ .PrimitiveType = ast.PrimitiveType.Float };
+                        try self.type_env.types.putNoClobber(program, typ);
+                        return typ;
                     },
                     //TODO: should probably split equal/notequal and others due to booleans, but ok for now
                     .EqualEqual, .NotEqual, .Greater, .Less, .GreaterEqual, .LessEqual => {
-                        return ast.Type{ .PrimitiveType = ast.PrimitiveType.Bool };
+                        const typ = ast.Type{ .PrimitiveType = ast.PrimitiveType.Bool };
+                        try self.type_env.types.putNoClobber(program, typ);
+                        return typ;
                     },
                 }
             },
             .Index => unreachable, //TODO: implement
             .Identifier => |ident| {
-                const ident_type = self.type_env.lookup(ident.value) orelse {
-                    try self.errors_list.append("Unbound identifier");
-                    return null;
-                };
-                return ident_type;
+                //TODO: catch and report the error value
+                const symbol = try self.type_env.resolveSymbol(ident.value);
+                try self.type_env.uses.putNoClobber(program, symbol);
+                return symbol.typ;
             },
             .IntegerLiteral => {
                 return ast.Type{ .PrimitiveType = ast.PrimitiveType.Integer };
