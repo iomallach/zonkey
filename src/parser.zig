@@ -227,6 +227,8 @@ pub const Parser = struct {
             self.advance();
             try self.matchNextAndAdvance(tok.TokenType.Type);
             //FIXME: what if there is no valid type annotation?
+            //FIXME: what if there is a composite aka function type?
+            //TODO: implement function type parsing
             type_annotation = self.parsePrimitiveTypeAnnotation();
         }
 
@@ -763,6 +765,9 @@ const TestHelpers = struct {
                 if (expression.* == .Identifier) {
                     return TestHelpers.test_identifier(expression, expected);
                 }
+                if (expression.* == .FunctionParameter) {
+                    return TestHelpers.test_identifier(expression.FunctionParameter.ident, expected);
+                }
                 unreachable;
             },
             else => {
@@ -1114,48 +1119,45 @@ test "Parse function literal" {
     try TestHelpers.test_infix_expression(&function_literal.body.BlockStatement.statements.items[0].ExpressionStatement.expression.Infix, left_exp, right_exp, ast.BinaryOp.Plus);
 }
 
-//FIXME: functions do not have types yet, commenting out
-// test "Parse function parameters" {
-//     const TestCase = struct {
-//         input: []const u8,
-//         parameters: [][]const u8,
-//
-//         pub fn strSlice(comptime strings: []const []const u8) [][]const u8 {
-//             const str: [][]const u8 = @constCast(strings);
-//             return str;
-//         }
-//     };
-//     const tests = [_]TestCase{
-//         .{ .input = "let foo = fn() void {};", .parameters = &[_][]const u8{} },
-//         .{ .input = "let foo = fn(x: int) void {};", .parameters = TestCase.strSlice(&.{"x"}) },
-//         .{ .input = "let foo = fn(x: float, y: string) void {};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
-//     };
-//
-//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-//     defer arena.deinit();
-//     const allocator = arena.allocator();
-//
-//     for (tests) |test_case| {
-//         var lexer = lex.Lexer.init(test_case.input, allocator);
-//         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
-//         const slice_tokens = try lexed_tokens.toOwnedSlice();
-//
-//         var parser = try Parser.init(slice_tokens, allocator);
-//         const program = parser.parse() catch |err| {
-//             //FIXME: stop ignoring the error once the error diagnostics are complete
-//             TestHelpers.test_parse_errors(&parser) catch {};
-//             return err;
-//         };
-//         try std.testing.expectEqual(1, program.Program.program.items.len);
-//
-//         const function_literal = program.Program.program.items[0].LetStatement.value.FunctionLiteral;
-//         try std.testing.expectEqual(test_case.parameters.len, function_literal.parameters.items.len);
-//
-//         for (test_case.parameters, 0..) |param, i| {
-//             try TestHelpers.test_literal_expression(&function_literal.parameters.items[i], param);
-//         }
-//     }
-// }
+test "Parse function parameters" {
+    const TestCase = struct {
+        input: []const u8,
+        parameters: [][]const u8,
+
+        pub fn strSlice(comptime strings: []const []const u8) [][]const u8 {
+            const str: [][]const u8 = @constCast(strings);
+            return str;
+        }
+    };
+    const tests = [_]TestCase{
+        .{ .input = "let foo = fn() void {};", .parameters = &[_][]const u8{} },
+        .{ .input = "let foo = fn(x: int) void {};", .parameters = TestCase.strSlice(&.{"x"}) },
+        .{ .input = "let foo = fn(x: float, y: string) void {};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    for (tests) |test_case| {
+        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+        const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+        var parser = try Parser.init(slice_tokens, allocator);
+        const program = try parser.parse();
+
+        try TestHelpers.test_parse_errors(&parser);
+        try std.testing.expectEqual(1, program.Program.program.items.len);
+
+        const function_literal = program.Program.program.items[0].LetStatement.expression.FunctionLiteral;
+        try std.testing.expectEqual(test_case.parameters.len, function_literal.parameters.items.len);
+
+        for (test_case.parameters, 0..) |param, i| {
+            try TestHelpers.test_literal_expression(&function_literal.parameters.items[i], param);
+        }
+    }
+}
 
 test "Parse array literals" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
