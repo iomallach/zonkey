@@ -17,13 +17,13 @@ const Scope = struct {
         };
     }
 
-    pub fn define(self: *Scope, name: []const u8, typ: ast.Type) error{OutOfMemory}!*const Symbol {
+    pub fn define(self: *Scope, name: []const u8, typ: ast.Type) error{OutOfMemory}!Symbol {
         try self.names.putNoClobber(name, Symbol{ .name = name, .typ = typ });
-        return &self.names.get(name).?;
+        return self.names.get(name).?;
     }
 
-    pub fn resolve(self: *Scope, name: []const u8) error{UnboundIdentifier}!*const Symbol {
-        if (self.names.get(name)) |*typ| {
+    pub fn resolve(self: *Scope, name: []const u8) error{UnboundIdentifier}!Symbol {
+        if (self.names.get(name)) |typ| {
             return typ;
         }
         if (self.parent) |p| {
@@ -37,9 +37,8 @@ const TypeEnvironment = struct {
     allocator: std.mem.Allocator,
     current_scope: *Scope,
     types: std.AutoHashMap(*ast.AstNode, ast.Type), // types of expression, e.g. infix, prefix, calls
-    // FIXME: the problem here is that reallocations invalidate pointers to symbols
-    defs: std.AutoHashMap(*ast.AstNode, *const Symbol), // mapping from definition to symbol
-    uses: std.AutoHashMap(*ast.AstNode, *const Symbol), // mapping from reference to symbol, symbol taken from scopes
+    defs: std.AutoHashMap(*ast.AstNode, Symbol), // mapping from definition to symbol
+    uses: std.AutoHashMap(*ast.AstNode, Symbol), // mapping from reference to symbol, symbol taken from scopes
 
     pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!TypeEnvironment {
         const current_scope = try allocator.create(Scope);
@@ -49,8 +48,8 @@ const TypeEnvironment = struct {
             .allocator = allocator,
             .current_scope = current_scope,
             .types = std.AutoHashMap(*ast.AstNode, ast.Type).init(allocator),
-            .defs = std.AutoHashMap(*ast.AstNode, *const Symbol).init(allocator),
-            .uses = std.AutoHashMap(*ast.AstNode, *const Symbol).init(allocator),
+            .defs = std.AutoHashMap(*ast.AstNode, Symbol).init(allocator),
+            .uses = std.AutoHashMap(*ast.AstNode, Symbol).init(allocator),
         };
     }
 
@@ -64,11 +63,11 @@ const TypeEnvironment = struct {
         self.current_scope = self.current_scope.parent.?;
     }
 
-    pub fn defineSymbol(self: *TypeEnvironment, name: []const u8, typ: ast.Type) error{OutOfMemory}!*const Symbol {
+    pub fn defineSymbol(self: *TypeEnvironment, name: []const u8, typ: ast.Type) error{OutOfMemory}!Symbol {
         return self.current_scope.define(name, typ);
     }
 
-    pub fn resolveSymbol(self: *TypeEnvironment, name: []const u8) error{UnboundIdentifier}!*const Symbol {
+    pub fn resolveSymbol(self: *TypeEnvironment, name: []const u8) error{UnboundIdentifier}!Symbol {
         return self.current_scope.resolve(name);
     }
 };
@@ -487,16 +486,16 @@ test "Infer function declaration" {
             .expected_param_types = &[_]ast.Type{ast.Type{ .PrimitiveType = .Integer }},
             .input = "fn myfunc(x: int) int { return x; }",
         },
-        // .{
-        //     .expected_ret_type = ast.Type{ .PrimitiveType = .Float },
-        //     .expected_param_types = &[_]ast.Type{ ast.Type{ .PrimitiveType = .Integer }, ast.Type{ .PrimitiveType = .Float } },
-        //     .input = "fn myfunc(x: int, y: float) float { return x * y; }",
-        // },
-        // .{
-        //     .expected_ret_type = ast.Type{ .PrimitiveType = .Float },
-        //     .expected_param_types = &[_]ast.Type{},
-        //     .input = "fn myfunc() bool { return !false; }",
-        // },
+        .{
+            .expected_ret_type = ast.Type{ .PrimitiveType = .Float },
+            .expected_param_types = &[_]ast.Type{ ast.Type{ .PrimitiveType = .Integer }, ast.Type{ .PrimitiveType = .Float } },
+            .input = "fn myfunc(x: int, y: float) float { return x * y; }",
+        },
+        .{
+            .expected_ret_type = ast.Type{ .PrimitiveType = .Bool },
+            .expected_param_types = &[_]ast.Type{},
+            .input = "fn myfunc() bool { return !false; }",
+        },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -508,13 +507,13 @@ test "Infer function declaration" {
         var checker = try TypeChecker.init(allocator);
         _ = try checker.inferAndCheck(&program);
 
-        //TODO: test function name & type
-        //TODO: test parameters if defs and its types
         try test_errors(&checker.errors_list);
         const function_decl = &program.Program.program.items[0];
         const symbol = checker.type_env.defs.get(function_decl).?;
         try std.testing.expectEqual(test_case.expected_ret_type, symbol.typ.Function.return_type);
-        // for (0..test_case.expected_param_types)
+        for (0..test_case.expected_param_types.len) |i| {
+            try std.testing.expectEqual(test_case.expected_param_types[i], symbol.typ.Function.arg_types.items[i]);
+        }
     }
 }
 
@@ -524,9 +523,9 @@ test "Infer function call" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int) int { return x; }; myfunc(3)" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Integer }, .input = "fn myfunc(x: int) int { return x; }; myfunc(3)" },
         // FIXME: \n causes integer overflow panic in lexer
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int, y: float) float { return x * y; }; myfunc(1, 3.3)" },
+        .{ .expected = ast.Type{ .PrimitiveType = .Float }, .input = "fn myfunc(x: int, y: float) float { return x * y; }; myfunc(1, 3.3)" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -539,6 +538,10 @@ test "Infer function call" {
         _ = try checker.inferAndCheck(&program);
 
         try test_errors(&checker.errors_list);
+
+        const call_expr = program.Program.program.items[1].ExpressionStatement.expression;
+        const typ = checker.type_env.types.get(call_expr).?;
+        try std.testing.expectEqual(test_case.expected, typ);
     }
 }
 
@@ -602,6 +605,8 @@ test "Infer assignment statements" {
         _ = try checker.inferAndCheck(&program);
 
         try test_errors(&checker.errors_list);
-        try std.testing.expectEqual(test_case.expected.PrimitiveType, (try checker.type_env.resolveSymbol("a")).typ.PrimitiveType);
+        try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("a")).typ);
+        const assign_ident = program.Program.program.items[1].AssignmentStatement.name;
+        try std.testing.expectEqual(test_case.expected, checker.type_env.uses.get(assign_ident).?.typ);
     }
 }
