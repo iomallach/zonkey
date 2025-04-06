@@ -37,6 +37,7 @@ const TypeEnvironment = struct {
     allocator: std.mem.Allocator,
     current_scope: *Scope,
     types: std.AutoHashMap(*ast.AstNode, ast.Type), // types of expression, e.g. infix, prefix, calls
+    // FIXME: the problem here is that reallocations invalidate pointers to symbols
     defs: std.AutoHashMap(*ast.AstNode, *const Symbol), // mapping from definition to symbol
     uses: std.AutoHashMap(*ast.AstNode, *const Symbol), // mapping from reference to symbol, symbol taken from scopes
 
@@ -135,7 +136,7 @@ pub const TypeChecker = struct {
                 }
                 self.type_env.exitScope();
 
-                return last_stmt_type;
+                return last_stmt_type orelse ast.Type{ .PrimitiveType = .Void };
             },
             .WhileLoopStatement => |wls| {
                 // TODO: implement later
@@ -168,6 +169,7 @@ pub const TypeChecker = struct {
                 }
                 // check statements
                 for (fl.body.BlockStatement.statements.items) |*stmt| {
+                    //TODO: check if the return statement is there at all
                     _ = try self.inferAndCheck(stmt);
                 }
                 self.current_function = null;
@@ -209,7 +211,7 @@ pub const TypeChecker = struct {
                         return cons_type.?;
                     }
                     // TODO: else if one of them null, report an error
-                    return null;
+                    return ast.Type{ .PrimitiveType = .Void };
                 }
 
                 return cons_type orelse ast.Type{ .PrimitiveType = .Void };
@@ -356,12 +358,13 @@ test "Infer simple expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        const program = try parse_program(test_case.input, allocator);
+        var program = try parse_program(test_case.input, allocator);
         var checker = try TypeChecker.init(allocator);
-        const typ = (try checker.inferAndCheck(program.Program.program.items[0].ExpressionStatement.expression)).?;
+        _ = try checker.inferAndCheck(&program);
 
         try test_errors(&checker.errors_list);
-        try std.testing.expectEqual(test_case.expected, typ);
+        const expression = program.Program.program.items[0].ExpressionStatement.expression;
+        try std.testing.expectEqual(test_case.expected, checker.type_env.types.get(expression));
     }
 }
 
@@ -410,24 +413,49 @@ test "Infer nested expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        const program = try parse_program(test_case.input, allocator);
+        var program = try parse_program(test_case.input, allocator);
         var checker = try TypeChecker.init(allocator);
-        const typ = (try checker.inferAndCheck(program.Program.program.items[0].ExpressionStatement.expression)).?;
+        _ = try checker.inferAndCheck(&program);
 
+        const expression = program.Program.program.items[0].ExpressionStatement.expression;
         try test_errors(&checker.errors_list);
-        try std.testing.expectEqual(test_case.expected, typ);
+        try std.testing.expectEqual(test_case.expected, checker.type_env.types.get(expression));
     }
 }
 
 test "Infer if expressions" {
     const TestCase = struct {
-        expected: ast.Type,
+        expected_cond_type: ast.Type,
+        expected_expr_type: ast.Type,
+        statement_num: usize,
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "if true == false {}" },
-        // .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "if !(3 < 5) { let a = 3; } else {}" },
-        // .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "let a = (5 * 2) < 10; if a {}" },
+        .{
+            .expected_cond_type = ast.Type{ .PrimitiveType = .Bool },
+            .expected_expr_type = ast.Type{ .PrimitiveType = .Void },
+            .input = "if true == false {}",
+            .statement_num = 0,
+        },
+        .{
+            .expected_cond_type = ast.Type{ .PrimitiveType = .Bool },
+            .expected_expr_type = ast.Type{ .PrimitiveType = .Void },
+            .input = "if !(3 < 5) { let a = 3; } else {}",
+            .statement_num = 0,
+        },
+        .{
+            .expected_cond_type = ast.Type{ .PrimitiveType = .Bool },
+            .expected_expr_type = ast.Type{ .PrimitiveType = .Void },
+            .input = "let a = (5 * 2) < 10; if a {}",
+            .statement_num = 1,
+        },
+        .{
+            .expected_cond_type = ast.Type{ .PrimitiveType = .Bool },
+            .expected_expr_type = ast.Type{ .PrimitiveType = .Float },
+            .input = "let a = (5 * 2) < 10; if a { 3.0 } else { 4 + 1 }",
+            .statement_num = 1,
+        },
+        //TODO: seems types of block statements are not recorded, might be something to look into
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -440,19 +468,35 @@ test "Infer if expressions" {
         _ = try checker.inferAndCheck(&program);
 
         try test_errors(&checker.errors_list);
+        const if_expression = program.Program.program.items[test_case.statement_num].ExpressionStatement.expression;
+        try std.testing.expectEqual(test_case.expected_cond_type, checker.type_env.types.get(if_expression.If.condition));
+        try std.testing.expectEqual(test_case.expected_expr_type, checker.type_env.types.get(if_expression));
     }
 }
 
 test "Infer function declaration" {
     const TestCase = struct {
         // TODO: not storing function type yet, as no function type exists
-        expected: ast.Type,
+        expected_ret_type: ast.Type,
+        expected_param_types: []const ast.Type,
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int) int { return x; }" },
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc(x: int, y: float) float { return x * y; }" },
-        .{ .expected = ast.Type{ .PrimitiveType = .Bool }, .input = "fn myfunc() bool { return !false; }" },
+        .{
+            .expected_ret_type = ast.Type{ .PrimitiveType = .Integer },
+            .expected_param_types = &[_]ast.Type{ast.Type{ .PrimitiveType = .Integer }},
+            .input = "fn myfunc(x: int) int { return x; }",
+        },
+        // .{
+        //     .expected_ret_type = ast.Type{ .PrimitiveType = .Float },
+        //     .expected_param_types = &[_]ast.Type{ ast.Type{ .PrimitiveType = .Integer }, ast.Type{ .PrimitiveType = .Float } },
+        //     .input = "fn myfunc(x: int, y: float) float { return x * y; }",
+        // },
+        // .{
+        //     .expected_ret_type = ast.Type{ .PrimitiveType = .Float },
+        //     .expected_param_types = &[_]ast.Type{},
+        //     .input = "fn myfunc() bool { return !false; }",
+        // },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -464,7 +508,13 @@ test "Infer function declaration" {
         var checker = try TypeChecker.init(allocator);
         _ = try checker.inferAndCheck(&program);
 
+        //TODO: test function name & type
+        //TODO: test parameters if defs and its types
         try test_errors(&checker.errors_list);
+        const function_decl = &program.Program.program.items[0];
+        const symbol = checker.type_env.defs.get(function_decl).?;
+        try std.testing.expectEqual(test_case.expected_ret_type, symbol.typ.Function.return_type);
+        // for (0..test_case.expected_param_types)
     }
 }
 
