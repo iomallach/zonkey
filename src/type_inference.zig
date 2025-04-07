@@ -33,7 +33,7 @@ const Scope = struct {
     }
 };
 
-const TypeEnvironment = struct {
+pub const TypeEnvironment = struct {
     allocator: std.mem.Allocator,
     current_scope: *Scope,
     types: std.AutoHashMap(*ast.AstNode, ast.Type), // types of expression, e.g. infix, prefix, calls

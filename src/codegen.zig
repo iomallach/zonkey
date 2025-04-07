@@ -12,6 +12,7 @@ const c = @cImport({
     @cInclude("llvm-c/ExecutionEngine.h");
 });
 const ast = @import("ast.zig");
+const ti = @import("type_inference.zig");
 const std = @import("std");
 
 const Symbol = struct {
@@ -73,8 +74,9 @@ pub const Compiler = struct {
     current_function: c.LLVMValueRef,
 
     allocator: std.mem.Allocator,
+    type_env: *ti.TypeEnvironment,
 
-    pub fn init(name: [*c]u8, allocator: std.mem.Allocator) !Compiler {
+    pub fn init(name: [*c]u8, type_env: *ti.TypeEnvironment, allocator: std.mem.Allocator) !Compiler {
         const context = c.LLVMContextCreate();
         return Compiler{
             .context = context,
@@ -83,6 +85,7 @@ pub const Compiler = struct {
             .symbol_table = try SymbolTable.init(allocator),
             .current_function = null,
             .allocator = allocator,
+            .type_env = type_env,
         };
     }
 
@@ -116,9 +119,10 @@ pub const Compiler = struct {
                 }
                 return null;
             },
-            .LetStatement => |ls| {
+            .LetStatement => |*ls| {
                 std.debug.print("Visiting let statement\n", .{});
-                const decl_type = self.getLLVMType(ls.name.Identifier.inferred_type.?);
+                const inferred_type = self.type_env.types.get(ls.name).?;
+                const decl_type = self.getLLVMType(inferred_type);
                 const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
                 const temp_builder = c.LLVMCreateBuilder();
                 defer c.LLVMDisposeBuilder(temp_builder);
@@ -132,7 +136,7 @@ pub const Compiler = struct {
                 _ = c.LLVMBuildStore(self.builder, init_value, alloca);
                 try self.symbol_table.define(Symbol{
                     .name = name,
-                    .type_annotation = ls.inferred_type.?,
+                    .type_annotation = inferred_type,
                     .llvm_value = alloca,
                 });
                 return alloca;
@@ -155,47 +159,84 @@ pub const Compiler = struct {
             },
             .ExpressionStatement => |stmt| {
                 std.debug.print("Visiting expression statement\n", .{});
-                return try self.codegen(stmt.expression);
+                return self.codegen(stmt.expression);
             },
             .Infix => |infix| {
                 std.debug.print("Visiting infix\n", .{});
-                const left = try self.codegen(infix.left);
-                const right = try self.codegen(infix.right);
-                return try self.compileBinOp(left, right, infix.operator);
+                const expr_type = self.type_env.types.get(node).?;
+                return self.compileBin(infix.left, infix.right, infix.operator, &expr_type);
             },
-            else => {
-                return error.Unreacheable;
-            },
+            else => unreachable,
         }
     }
 
-    fn compileBin(self: *Compiler, left: *ast.AstNode, right: *ast.AstNode, operator: ast.BinaryOp) !c.LLVMValueRef {}
+    fn compileBin(self: *Compiler, left: *const ast.AstNode, right: *const ast.AstNode, operator: *const ast.BinaryOp, expr_type: *const ast.Type) !c.LLVMValueRef {
+        const compiled_left = try self.codegen(left);
+        const compiled_right = try self.codegen(right);
 
-    fn compileBinOp(self: *Compiler, left: c.LLVMValueRef, right: c.LLVMValueRef, operator: []const u8) !c.LLVMValueRef {
-        const type_kind_left = c.LLVMGetTypeKind(c.LLVMTypeOf(left));
-        const type_kind_right = c.LLVMGetTypeKind(c.LLVMTypeOf(right));
-        std.debug.print("Compiling binop with types: {d}, {d}\n", .{ type_kind_left, type_kind_right });
-        //TODO: identifiers are not supported yet
-        if (std.mem.eql(u8, operator, "+") and type_kind_left == c.LLVMIntegerTypeKind and type_kind_right == c.LLVMIntegerTypeKind) {
-            return c.LLVMBuildAdd(self.builder, left, right, "add");
-        } else if (std.mem.eql(u8, operator, "+") and type_kind_left == c.LLVMFloatTypeKind and type_kind_right == c.LLVMFloatTypeKind) {
-            return c.LLVMBuildFAdd(self.builder, left, right, "fadd");
-        } else if (std.mem.eql(u8, operator, "-") and type_kind_left == c.LLVMIntegerTypeKind and type_kind_right == c.LLVMIntegerTypeKind) {
-            return c.LLVMBuildSub(self.builder, left, right, "sub");
-        } else if (std.mem.eql(u8, operator, "-") and type_kind_left == c.LLVMFloatTypeKind and type_kind_right == c.LLVMFloatTypeKind) {
-            return c.LLVMBuildFSub(self.builder, left, right, "fsub");
-        } else {
-            return error.IllegalOperation;
-        }
+        return switch (operator.*) {
+            .Plus => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFAdd(self.builder, compiled_left, compiled_right, "fadd"),
+                else => unreachable,
+            },
+            .Minus => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFSub(self.builder, compiled_left, compiled_right, "fsub"),
+                else => unreachable,
+            },
+            .Multiply => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFMul(self.builder, compiled_left, compiled_right, "fmul"),
+                else => unreachable,
+            },
+            .Divide => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFDiv(self.builder, compiled_left, compiled_right, "fmul"),
+                else => unreachable,
+            },
+            .EqualEqual => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOEQ, compiled_left, compiled_right, "fecmp"),
+                .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntEQ, compiled_left, compiled_right, "iecmp"),
+                .Bool => c.LLVMBuildICmp(self.builder, c.LLVMIntEQ, compiled_left, compiled_right, "becmp"),
+                else => unreachable,
+            },
+            .NotEqual => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealONE, compiled_left, compiled_right, "fnecmp"),
+                .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntNE, compiled_left, compiled_right, "inecmp"),
+                .Bool => c.LLVMBuildICmp(self.builder, c.LLVMIntNE, compiled_left, compiled_right, "becmp"),
+            },
+            .Greater => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOGT, compiled_left, compiled_right, "fgtcmp"),
+                .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSGT, compiled_left, compiled_right, "igtcmp"),
+                else => unreachable,
+            },
+            .Less => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOLT, compiled_left, compiled_right, "fltcmp"),
+                .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSLT, compiled_left, compiled_right, "iltcmp"),
+                else => unreachable,
+            },
+            .GreaterEqual => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOGE, compiled_left, compiled_right, "fgecmp"),
+                .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSGE, compiled_left, compiled_right, "igecmp"),
+                else => unreachable,
+            },
+            .LessEqual => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOLE, compiled_left, compiled_right, "flecmp"),
+                .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSLE, compiled_left, compiled_right, "ilecmp"),
+                else => unreachable,
+            },
+        };
     }
 
     fn getLLVMType(self: *Compiler, type_annotation: ast.Type) c.LLVMTypeRef {
         return switch (type_annotation) {
-            .Integer => c.LLVMInt64TypeInContext(self.context),
-            .Float => c.LLVMDoubleTypeInContext(self.context),
-            .Bool => c.LLVMInt1TypeInContext(self.context),
-            .String => c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0),
-            .Void => c.LLVMVoidTypeInContext(self.context),
+            .PrimitiveType => |pt| {
+                switch (pt) {
+                    .Integer => c.LLVMInt64TypeInContext(self.context),
+                    .Float => c.LLVMDoubleTypeInContext(self.context),
+                    .Bool => c.LLVMInt1TypeInContext(self.context),
+                    .String => c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0),
+                    .Void => c.LLVMVoidTypeInContext(self.context),
+                }
+            },
+            else => unreachable,
         };
     }
 
