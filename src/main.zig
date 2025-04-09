@@ -4,6 +4,7 @@ const Parser = @import("parser.zig").Parser;
 const tok = @import("token.zig");
 const ast = @import("ast.zig");
 const codegen = @import("codegen.zig");
+const tc = @import("type_inference.zig");
 
 // pub fn main() !void {
 //     const stdin = std.io.getStdIn().reader();
@@ -211,9 +212,33 @@ pub fn main() !void {
     const allocator = arena.allocator();
     defer arena.deinit();
 
-    const prog = try processSimpleExpression("let a: float = 5.1; let b: float = a; let c: float = a + b;", allocator);
-    var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), allocator);
+    var lex = Lexer.Lexer.init("let a: float = 5.1; let b: float = a; let c: float = a + b;", allocator);
+    var tokens = try lex_tokens(&lex, allocator);
+    const slice_tokens = try tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+    var program = parser.parse() catch |err| {
+        if (parser.errors().*.items.len > 0) {
+            std.debug.print("Errors:\n", .{});
+            for (parser.errors().*.items, 1..) |e, i| {
+                std.debug.print("  {d}: {s}\n", .{ i, e });
+            }
+        }
+        return err;
+    };
+    if (parser.errors().*.items.len > 0) {
+        std.debug.print("Errors:\n", .{});
+        for (parser.errors().*.items, 1..) |e, i| {
+            std.debug.print("  {d}: {s}\n", .{ i, e });
+        }
+        return error.Badaboom;
+    }
+
+    var type_checker = try tc.TypeChecker.init(allocator);
+    _ = try type_checker.inferAndCheck(&program);
+
+    var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), &type_checker.type_env, allocator);
     defer compiler.deinit();
 
-    try compiler.run(&prog);
+    try compiler.run(&program);
 }

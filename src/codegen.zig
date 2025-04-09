@@ -110,7 +110,7 @@ pub const Compiler = struct {
         self.writeIRToFile();
     }
 
-    fn codegen(self: *Compiler, node: *const ast.AstNode) !c.LLVMValueRef {
+    fn codegen(self: *Compiler, node: *const ast.AstNode) anyerror!c.LLVMValueRef {
         switch (node.*) {
             .Program => |p| {
                 for (p.program.items) |stmt| {
@@ -121,7 +121,7 @@ pub const Compiler = struct {
             },
             .LetStatement => |*ls| {
                 std.debug.print("Visiting let statement\n", .{});
-                const inferred_type = self.type_env.types.get(ls.name).?;
+                const inferred_type = self.type_env.defs.get(ls.name).?.typ;
                 const decl_type = self.getLLVMType(inferred_type);
                 const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
                 const temp_builder = c.LLVMCreateBuilder();
@@ -147,6 +147,12 @@ pub const Compiler = struct {
                 const lit: c_ulonglong = @intCast(int_lit.value);
                 return c.LLVMConstInt(int_type, lit, 0);
             },
+            .BooleanLiteral => |bool_lit| {
+                std.debug.print("Visiting boolean literal\n", .{});
+                const bool_type = self.getLLVMType(self.type_env.types.get(@constCast(node)).?);
+                const bool_value: c_ulonglong = if (bool_lit.value) @intCast(1) else @intCast(0);
+                return c.LLVMConstInt(bool_type, bool_value, 0);
+            },
             .FloatLiteral => |f_lit| {
                 std.debug.print("Visiting float literal\n", .{});
                 const float_type = c.LLVMDoubleTypeInContext(self.context);
@@ -163,14 +169,32 @@ pub const Compiler = struct {
             },
             .Infix => |infix| {
                 std.debug.print("Visiting infix\n", .{});
-                const expr_type = self.type_env.types.get(node).?;
-                return self.compileBin(infix.left, infix.right, infix.operator, &expr_type);
+                const expr_type = self.type_env.types.get(@constCast(node)).?;
+                return self.compileBinOp(infix.left, infix.right, &infix.operator, &expr_type);
+            },
+            .Prefix => |prefix| {
+                std.debug.print("Visiting prefix\n", .{});
+                const expr_type = self.type_env.types.get(@constCast(node)).?;
+                return self.compileUnOp(prefix.right, &prefix.operator, &expr_type);
             },
             else => unreachable,
         }
     }
 
-    fn compileBin(self: *Compiler, left: *const ast.AstNode, right: *const ast.AstNode, operator: *const ast.BinaryOp, expr_type: *const ast.Type) !c.LLVMValueRef {
+    fn compileUnOp(self: *Compiler, right: *const ast.AstNode, operator: *const ast.UnaryOp, expr_type: *const ast.Type) !c.LLVMValueRef {
+        const compiled_right = try self.codegen(right);
+
+        return switch (operator.*) {
+            .Negation => c.LLVMBuildNot(self.builder, compiled_right, "bnot"),
+            .Minus => switch (expr_type.PrimitiveType) {
+                .Float => c.LLVMBuildFNeg(self.builder, compiled_right, "fneg"),
+                .Integer => c.LLVMBuildNeg(self.builder, compiled_right, "ineg"),
+                else => unreachable,
+            },
+        };
+    }
+
+    fn compileBinOp(self: *Compiler, left: *const ast.AstNode, right: *const ast.AstNode, operator: *const ast.BinaryOp, expr_type: *const ast.Type) !c.LLVMValueRef {
         const compiled_left = try self.codegen(left);
         const compiled_right = try self.codegen(right);
 
@@ -201,6 +225,7 @@ pub const Compiler = struct {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealONE, compiled_left, compiled_right, "fnecmp"),
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntNE, compiled_left, compiled_right, "inecmp"),
                 .Bool => c.LLVMBuildICmp(self.builder, c.LLVMIntNE, compiled_left, compiled_right, "becmp"),
+                else => unreachable,
             },
             .Greater => switch (expr_type.PrimitiveType) {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOGT, compiled_left, compiled_right, "fgtcmp"),
@@ -226,18 +251,19 @@ pub const Compiler = struct {
     }
 
     fn getLLVMType(self: *Compiler, type_annotation: ast.Type) c.LLVMTypeRef {
-        return switch (type_annotation) {
+        switch (type_annotation) {
             .PrimitiveType => |pt| {
                 switch (pt) {
-                    .Integer => c.LLVMInt64TypeInContext(self.context),
-                    .Float => c.LLVMDoubleTypeInContext(self.context),
-                    .Bool => c.LLVMInt1TypeInContext(self.context),
-                    .String => c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0),
-                    .Void => c.LLVMVoidTypeInContext(self.context),
+                    .Integer => return c.LLVMInt64TypeInContext(self.context),
+                    .Float => return c.LLVMDoubleTypeInContext(self.context),
+                    .Bool => return c.LLVMInt1TypeInContext(self.context),
+                    .String => return c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0),
+                    .Void => return c.LLVMVoidTypeInContext(self.context),
+                    else => unreachable,
                 }
             },
             else => unreachable,
-        };
+        }
     }
 
     fn analyzeModule(self: *Compiler) void {
