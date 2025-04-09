@@ -45,11 +45,7 @@ const SymbolTable = struct {
     }
 
     pub fn exitScope(self: *SymbolTable) void {
-        const current_scope = self.scopes.pop().?;
-        var it = current_scope.iterator();
-        for (it.next()) |entry| {
-            self.allocator.free(entry.value_ptr.name);
-        }
+        var current_scope = self.scopes.pop().?;
         current_scope.deinit();
     }
 
@@ -104,7 +100,14 @@ pub const Compiler = struct {
 
         _ = try self.codegen(program);
 
-        _ = c.LLVMBuildRet(self.builder, c.LLVMConstInt(c.LLVMInt32TypeInContext(self.context), 0, 0));
+        const current_block = c.LLVMGetInsertBlock(self.builder);
+        if (c.LLVMGetBasicBlockTerminator(current_block) == null) {
+            _ = c.LLVMBuildRet(self.builder, c.LLVMConstInt(c.LLVMInt32TypeInContext(self.context), 0, 0));
+        }
+
+        const ir_string = c.LLVMPrintModuleToString(self.module);
+        defer c.LLVMDisposeMessage(ir_string);
+        std.debug.print("Generated IR:\n{s}\n", .{ir_string});
 
         self.analyzeModule();
         self.writeIRToFile();
@@ -123,10 +126,11 @@ pub const Compiler = struct {
                 std.debug.print("Visiting let statement\n", .{});
                 const inferred_type = self.type_env.defs.get(ls.name).?.typ;
                 const decl_type = self.getLLVMType(inferred_type);
-                const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
+                const current_block = c.LLVMGetInsertBlock(self.builder);
+                // const cur_fn_entry_block = c.LLVMGetEntryBasicBlock(self.current_function);
                 const temp_builder = c.LLVMCreateBuilder();
                 defer c.LLVMDisposeBuilder(temp_builder);
-                c.LLVMPositionBuilderAtEnd(temp_builder, cur_fn_entry_block);
+                c.LLVMPositionBuilderAtEnd(temp_builder, current_block);
 
                 const name = try self.allocator.dupeZ(u8, ls.name.Identifier.value);
                 const alloca = c.LLVMBuildAlloca(temp_builder, decl_type, name.ptr);
@@ -149,7 +153,9 @@ pub const Compiler = struct {
             },
             .BooleanLiteral => |bool_lit| {
                 std.debug.print("Visiting boolean literal\n", .{});
-                const bool_type = self.getLLVMType(self.type_env.types.get(@constCast(node)).?);
+                const bool_type = c.LLVMInt1TypeInContext(self.context);
+                //FIXME: panics :(
+                // const bool_type = self.getLLVMType(self.type_env.types.get(@constCast(node)).?);
                 const bool_value: c_ulonglong = if (bool_lit.value) @intCast(1) else @intCast(0);
                 return c.LLVMConstInt(bool_type, bool_value, 0);
             },
@@ -176,6 +182,42 @@ pub const Compiler = struct {
                 std.debug.print("Visiting prefix\n", .{});
                 const expr_type = self.type_env.types.get(@constCast(node)).?;
                 return self.compileUnOp(prefix.right, &prefix.operator, &expr_type);
+            },
+            .If => |ifexp| {
+                std.debug.print("Visiting if expression\n", .{});
+                const current_block = c.LLVMGetInsertBlock(self.builder);
+                const function = c.LLVMGetBasicBlockParent(current_block);
+
+                const then_bb = c.LLVMAppendBasicBlockInContext(self.context, function, "then");
+                const else_bb = c.LLVMAppendBasicBlockInContext(self.context, function, "else");
+                const merge_bb = c.LLVMAppendBasicBlockInContext(self.context, function, "ifcont");
+
+                const condition = try self.codegen(ifexp.condition);
+
+                _ = c.LLVMBuildCondBr(self.builder, condition, then_bb, else_bb);
+
+                // then branch
+                c.LLVMPositionBuilderAtEnd(self.builder, then_bb);
+                try self.symbol_table.enterScope();
+                for (ifexp.consequence.BlockStatement.statements.items) |*stmt| {
+                    _ = try self.codegen(stmt);
+                }
+                self.symbol_table.exitScope();
+                _ = c.LLVMBuildBr(self.builder, merge_bb);
+
+                // else branch
+                c.LLVMPositionBuilderAtEnd(self.builder, else_bb);
+                if (ifexp.alternative) |alt| {
+                    try self.symbol_table.enterScope();
+                    for (alt.BlockStatement.statements.items) |*stmt| {
+                        _ = try self.codegen(stmt);
+                    }
+                    self.symbol_table.exitScope();
+                }
+                _ = c.LLVMBuildBr(self.builder, merge_bb);
+
+                c.LLVMPositionBuilderAtEnd(self.builder, merge_bb);
+                return null;
             },
             else => unreachable,
         }

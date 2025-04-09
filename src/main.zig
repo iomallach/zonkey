@@ -212,7 +212,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
     defer arena.deinit();
 
-    var lex = Lexer.Lexer.init("let a: float = 5.1; let b: float = a; let c: float = a + b;", allocator);
+    var lex = Lexer.Lexer.init("let a: float = 5.1; let b: float = a; let c: float = a + b; let d = !true;if (true) {let b = 3;}", allocator);
     var tokens = try lex_tokens(&lex, allocator);
     const slice_tokens = try tokens.toOwnedSlice();
 
