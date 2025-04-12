@@ -676,9 +676,7 @@ pub const Parser = struct {
 
     fn parsePrimitiveTypeAnnotation(self: *Parser) ast.Type {
         const token = self.currentToken();
-        return ast.Type{
-            .PrimitiveType = ast.PrimitiveType.fromLiteral(token.literal),
-        };
+        return ast.Type.primitiveFromLiteral(token.literal);
     }
 
     fn parseWhileLoopStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {

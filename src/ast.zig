@@ -75,41 +75,36 @@ pub const BinaryOp = enum {
     }
 };
 
-pub const PrimitiveType = enum {
+pub const Type = union(enum) {
     Bool,
     Integer,
     Float,
     String,
     Void,
-    Function,
+    Function: *FunctionType,
 
-    pub fn fromLiteral(literal: []const u8) PrimitiveType {
+    pub fn primitiveFromLiteral(literal: []const u8) Type {
         if (std.mem.eql(u8, literal, "bool")) {
-            return PrimitiveType.Bool;
+            return .Bool;
         }
 
         if (std.mem.eql(u8, "int", literal)) {
-            return PrimitiveType.Integer;
+            return .Integer;
         }
 
         if (std.mem.eql(u8, "float", literal)) {
-            return PrimitiveType.Float;
+            return .Float;
         }
 
         if (std.mem.eql(u8, "string", literal)) {
-            return PrimitiveType.String;
+            return .String;
         }
 
         if (std.mem.eql(u8, "void", literal)) {
-            return PrimitiveType.Void;
+            return .Void;
         }
         unreachable;
     }
-};
-
-pub const Type = union(enum) {
-    PrimitiveType: PrimitiveType,
-    Function: *FunctionType,
 };
 
 pub const FunctionType = struct {
