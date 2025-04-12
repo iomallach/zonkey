@@ -854,7 +854,7 @@ test "Test parse let statement" {
         //TODO: still need to implement function literal parsing
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -883,7 +883,7 @@ test "Test parse identifier" {
     const input = "foobar;";
     const expected: []const u8 = "foobar";
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -904,7 +904,7 @@ test "Test parse string literals" {
     const input = "\"Hello world!\"";
     const expected: []const u8 = "Hello world!";
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -935,7 +935,7 @@ test "Parse numeric expressions" {
         .{ .input = "134.965", .expected = Value{ .float = 134.965 } },
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -973,7 +973,7 @@ test "Parse prefix expressions" {
         .{ .input = "!false", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = false } },
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1004,7 +1004,7 @@ test "Parse boolean expression" {
         .{ .input = "false;", .value = false },
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1051,7 +1051,7 @@ test "Parse infix expression" {
         .{ .input = "false == false;", .operator = ast.BinaryOp.EqualEqual, .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
         .{ .input = "false != false;", .operator = ast.BinaryOp.NotEqual, .left = Value{ .boolean = false }, .right = Value{ .boolean = false } },
     };
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1076,7 +1076,7 @@ test "Parse infix expression" {
 }
 
 test "Parse if expressions" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1103,7 +1103,7 @@ test "Parse if expressions" {
 }
 
 test "Parse function literal" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1147,7 +1147,7 @@ test "Parse function parameters" {
         .{ .input = "let foo = fn(x: float, y: string) void {};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1172,7 +1172,7 @@ test "Parse function parameters" {
 }
 
 test "Parse array literals" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1193,7 +1193,7 @@ test "Parse array literals" {
 }
 
 test "Parse function call" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1218,7 +1218,7 @@ test "Parse function call" {
 }
 
 test "Parse index expression" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1255,7 +1255,7 @@ test "Parse return statement" {
         //TODO: test anonymous function returns
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1286,7 +1286,7 @@ test "Parse while loop statement" {
         .{ .input = "while x>y { let a: int = 2; let b: int = 3; }", .left_cond_exp = "x", .right_cond_exp = "y", .n_statements = 2 },
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -1341,7 +1341,7 @@ test "Parse assigment statement" {
         //TODO: still need to implement function literal parsing
     };
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
