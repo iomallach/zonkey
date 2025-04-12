@@ -105,6 +105,24 @@ pub const Type = union(enum) {
         }
         unreachable;
     }
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: std.io.AnyWriter,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        switch (self) {
+            .Bool => try writer.writeAll("bool"),
+            .Integer => try writer.writeAll("int"),
+            .Float => try writer.writeAll("float"),
+            .String => try writer.writeAll("string"),
+            .Void => try writer.writeAll("void"),
+            .Function => try writer.writeAll("function"),
+        }
+    }
 };
 
 pub const FunctionType = struct {
