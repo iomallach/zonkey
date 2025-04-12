@@ -191,17 +191,6 @@ pub const Program = struct {
     pub fn addStatement(self: *Program, stmt: AstNode) !void {
         try self.program.append(stmt);
     }
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        for (self.program.items) |s| {
-            try s.format(fmt, options, writer);
-        }
-    }
 };
 
 pub const LetStatement = struct {
@@ -209,49 +198,16 @@ pub const LetStatement = struct {
     name: *AstNode, // Identifier
     expression: *AstNode, // ExpressionNode
     inferred_type: ?Type,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        try writer.writeAll(self.token.literal);
-        try self.name.format(fmt, options, writer);
-        try writer.writeAll(" = ");
-        try self.expression.format(fmt, options, writer);
-        try writer.writeAll(";");
-    }
 };
 
 pub const ReturnStatement = struct {
     token: tok.Token,
     return_value: *AstNode, // ExpressionNode
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        try writer.writeAll(self.token.literal);
-        try self.return_value.format(fmt, options, writer);
-        try writer.writeAll(";");
-    }
 };
 
 pub const ExpressionStatement = struct {
     token: tok.Token,
     expression: *AstNode, // ExpressionNode
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try self.expression.format(fmt, options, writer);
-    }
 };
 
 pub const BlockStatement = struct {
@@ -270,19 +226,6 @@ pub const BlockStatement = struct {
     pub fn addStatement(self: *BlockStatement, stmt: AstNode) !void {
         try self.statements.append(stmt);
     }
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) anyerror!void {
-        try writer.writeAll("{\n");
-        for (self.statements.items) |s| {
-            try s.format(fmt, options, writer);
-        }
-        try writer.writeAll("\n}");
-    }
 };
 
 pub const WhileLoopStatement = struct {
@@ -300,114 +243,31 @@ pub const AssignmentStatement = struct {
 pub const Identifier = struct {
     token: tok.Token,
     value: []const u8,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        if (fmt.len == 0) {
-            return writer.writeAll(self.value);
-        }
-        return self.format("", options, writer);
-    }
 };
 
 pub const IntegerLiteral = struct {
     token: tok.Token,
     value: i64,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        if (fmt.len == 0) {
-            return writer.writeAll(self.token.literal);
-        }
-
-        return self.format("", options, writer);
-    }
 };
 
 pub const FloatLiteral = struct {
     token: tok.Token,
     value: f64,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        return writer.writeAll(self.token.literal);
-    }
 };
 
 pub const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        if (fmt.len == 0) {
-            return writer.writeAll(self.token.literal);
-        }
-
-        return self.format("", options, writer);
-    }
 };
 
 pub const StringLiteral = struct {
     token: tok.Token,
     value: []const u8,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        if (fmt.len == 0) {
-            return writer.writeAll(self.value);
-        }
-
-        return self.format("", options, writer);
-    }
 };
 
 pub const ArrayLiteral = struct {
     token: tok.Token,
     elements: std.ArrayList(AstNode),
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: std.io.AnyWriter,
-    ) !void {
-        _ = fmt;
-
-        try writer.writeAll("[");
-
-        for (self.elements, 0..) |elem, i| {
-            try elem.format("{}", options, writer);
-
-            if (i < self.elements.len - 1) {
-                try writer.writeAll(", ");
-            }
-        }
-
-        try writer.writeAll("]");
-    }
 };
 
 pub const FunctionLiteral = struct {
@@ -416,28 +276,6 @@ pub const FunctionLiteral = struct {
     body: *AstNode,
     name: ?[]const u8,
     return_type: Type,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll(self.token.literal);
-        try writer.writeAll("(");
-        for (self.parameters, 0..) |param, i| {
-            try param.format(fmt, options, writer);
-
-            if (i < self.parameters.len - 1) {
-                try writer.writeAll(", ");
-            }
-        }
-        try writer.writeAll(")");
-
-        for (self.body) |b| {
-            try b.format(fmt, options, writer);
-        }
-    }
 };
 
 pub const FunctionParameter = struct {
@@ -449,20 +287,6 @@ pub const FunctionCall = struct {
     token: tok.Token,
     function: *AstNode,
     arguments: std.ArrayList(AstNode),
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try self.function.format(fmt, options, writer);
-        try writer.writeAll("(");
-        for (self.arguments) |a| {
-            try a.format(fmt, options, writer);
-        }
-        try writer.writeAll(")");
-    }
 };
 
 pub const BuiltInCall = struct {
@@ -475,18 +299,6 @@ pub const Prefix = struct {
     token: tok.Token,
     operator: UnaryOp,
     right: *AstNode,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll("(");
-        try writer.writeAll(self.operator);
-        try self.right.format(fmt, options, writer);
-        try writer.writeAll(")");
-    }
 };
 
 pub const Infix = struct {
@@ -494,19 +306,6 @@ pub const Infix = struct {
     operator: BinaryOp,
     left: *AstNode,
     right: *AstNode,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll("(");
-        try self.left.format(fmt, options, writer);
-        try writer.writeAll(self.operator);
-        try self.right.format(fmt, options, writer);
-        try writer.writeAll(")");
-    }
 };
 
 pub const If = struct {
@@ -514,42 +313,10 @@ pub const If = struct {
     condition: *AstNode,
     consequence: *AstNode,
     alternative: ?*AstNode,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll("if ");
-        try self.condition.format(fmt, options, writer);
-        try writer.writeAll(" ");
-        try self.consequence.format(fmt, options, writer);
-
-        if (self.alternative) |alt| {
-            try writer.writeAll("else ");
-            for (alt) |stmt| {
-                try stmt.format(fmt, options, writer);
-            }
-        }
-    }
 };
 
 pub const Index = struct {
     token: tok.Token,
     expression: *AstNode,
     indexed_expression: *AstNode,
-
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll("(");
-        try self.expression.format(fmt, options, writer);
-        try writer.writeAll("[");
-        try self.expression.format(fmt, options, writer);
-        try writer.writeAll("])");
-    }
 };
