@@ -259,6 +259,9 @@ pub const TypeChecker = struct {
                             try self.errors_list.append("Invalid infix expression");
                             return null;
                         }
+                        if (left_type == .Float or right_type == .Float) {
+                            return ast.Type.Float;
+                        }
 
                         // at this point left == right and we're good with returning either type
                         return left_type;
