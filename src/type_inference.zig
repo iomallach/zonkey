@@ -248,10 +248,6 @@ pub const TypeChecker = struct {
                     try self.errors_list.append("Invalid infix expression");
                     return null;
                 }
-                if (!std.meta.eql(left_type, right_type)) {
-                    try self.errors_list.append("Infix on different types");
-                    return null;
-                }
 
                 switch (infx.operator) {
                     .Plus, .Minus, .Multiply, .Divide => {
@@ -351,10 +347,12 @@ test "Infer simple expressions" {
         .{ .expected = ast.Type.Integer, .input = "-5" },
         .{ .expected = ast.Type.Float, .input = "-7.3" },
         .{ .expected = ast.Type.Integer, .input = "5 - 3" },
+        .{ .expected = ast.Type.Float, .input = "5.0 - 3" },
         .{ .expected = ast.Type.Integer, .input = "5 + 3" },
         .{ .expected = ast.Type.Integer, .input = "5 / 3" },
         .{ .expected = ast.Type.Integer, .input = "5 * 3" },
         .{ .expected = ast.Type.Float, .input = "5.1 * 3.1" },
+        .{ .expected = ast.Type.Float, .input = "5 * 3.1" },
         .{ .expected = ast.Type.Bool, .input = "5 == 3" },
         .{ .expected = ast.Type.Bool, .input = "5 != 3" },
         .{ .expected = ast.Type.Bool, .input = "5 > 3" },
@@ -397,6 +395,7 @@ test "Infer let statements" {
         .{ .expected = ast.Type.String, .input = "let a: string = \"test\"" },
         .{ .expected = ast.Type.Integer, .input = "let a = 4 + 3" },
         .{ .expected = ast.Type.Float, .input = "let a = 4.0 + 3.0" },
+        .{ .expected = ast.Type.Float, .input = "let a = 4 / 3.0" },
         .{ .expected = ast.Type.Bool, .input = "let a = !true" },
     };
 
@@ -423,8 +422,9 @@ test "Infer nested expressions" {
         .{ .expected = ast.Type.Integer, .input = "-1 + 2" },
         .{ .expected = ast.Type.Integer, .input = "2 + 3 - 1 * 2" },
         .{ .expected = ast.Type.Integer, .input = "-(4 + 5) / 3" },
-        .{ .expected = ast.Type.Float, .input = "-(4.0 + 5.0) / 3.0" },
+        .{ .expected = ast.Type.Float, .input = "-(4 + 5) / 3.0" },
         .{ .expected = ast.Type.Bool, .input = "!(2 < 3)" },
+        .{ .expected = ast.Type.Bool, .input = "!(2 < 3.0)" },
         .{ .expected = ast.Type.Bool, .input = "!(!true == false)" },
     };
 
@@ -472,7 +472,7 @@ test "Infer if expressions" {
         .{
             .expected_cond_type = ast.Type.Bool,
             .expected_expr_type = ast.Type.Float,
-            .input = "let a = (5 * 2) < 10; if a { 3.0 } else { 4.0 + 1.0 }",
+            .input = "let a = (5 * 2) < 10.0; if a { 3.0 } else { 4.0 + 1.0 }",
             .statement_num = 1,
         },
         //TODO: seems types of block statements are not recorded, might be something to look into
@@ -518,6 +518,11 @@ test "Infer function declaration" {
             .input = "fn myfunc(x: float, y: float) float { return x * y; }",
         },
         .{
+            .expected_ret_type = ast.Type.Float,
+            .expected_param_types = &[_]ast.Type{ ast.Type.Integer, ast.Type.Float },
+            .input = "fn myfunc(x: int, y: float) float { return x * y; }",
+        },
+        .{
             .expected_ret_type = ast.Type.Bool,
             .expected_param_types = &[_]ast.Type{},
             .input = "fn myfunc() bool { return !false; }",
@@ -552,6 +557,7 @@ test "Infer function call" {
         .{ .expected = ast.Type.Integer, .input = "fn myfunc(x: int) int { return x; }; myfunc(3)" },
         // FIXME: \n causes integer overflow panic in lexer
         .{ .expected = ast.Type.Float, .input = "fn myfunc(x: float, y: float) float { return x * y; }; myfunc(1.0, 3.3)" },
+        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: int, y: float) float { return x * y; }; myfunc(1, 3.3)" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -580,6 +586,10 @@ test "Infer mixed expressions" {
         .{
             .expected = ast.Type.Integer,
             .input = "fn myfunc(x: int) int { return 1 + x; }; let foo = 3 + myfunc(2);",
+        },
+        .{
+            .expected = ast.Type.Float,
+            .input = "fn myfunc(x: int) int { return 1 + x; }; let foo = 3.0 + myfunc(2);",
         },
         .{
             .expected = ast.Type.Bool,
@@ -614,6 +624,10 @@ test "Infer assignment statements" {
         .{
             .expected = ast.Type.Integer,
             .input = "let a = 1; a = a + 1;",
+        },
+        .{
+            .expected = ast.Type.Float,
+            .input = "let a = 1.0; a = a + 1.0;",
         },
         .{
             .expected = ast.Type.Bool,
