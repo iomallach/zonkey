@@ -212,7 +212,11 @@ pub fn main() !void {
     const allocator = arena.allocator();
     defer arena.deinit();
 
-    var lex = Lexer.Lexer.init("let a: float = 5.1; let b: float = a; let c: float = a + b; let d = !true;if (true) {let b = 3;}", allocator);
+    const file = try std.fs.cwd().openFile("programs/current.zk", .{});
+    const code = try file.readToEndAlloc(allocator, 1024 * 1024 * 10);
+    std.debug.print("Code:\n{s}\n", .{code});
+
+    var lex = Lexer.Lexer.init(code, allocator);
     var tokens = try lex_tokens(&lex, allocator);
     const slice_tokens = try tokens.toOwnedSlice();
 

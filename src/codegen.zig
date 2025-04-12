@@ -19,6 +19,7 @@ const Symbol = struct {
     name: [:0]const u8,
     type_annotation: ast.Type,
     llvm_value: c.LLVMValueRef,
+    is_parameter: bool,
 };
 
 const SymbolTable = struct {
@@ -142,6 +143,7 @@ pub const Compiler = struct {
                     .name = name,
                     .type_annotation = inferred_type,
                     .llvm_value = alloca,
+                    .is_parameter = false,
                 });
                 return alloca;
             },
@@ -167,7 +169,11 @@ pub const Compiler = struct {
             .Identifier => |ident| {
                 const symbol = self.symbol_table.lookup(ident.value).?;
                 const symbol_type = self.getLLVMType(symbol.type_annotation);
-                return c.LLVMBuildLoad2(self.builder, symbol_type, symbol.llvm_value, symbol.name);
+                if (symbol.is_parameter) {
+                    return symbol.llvm_value;
+                } else {
+                    return c.LLVMBuildLoad2(self.builder, symbol_type, symbol.llvm_value, symbol.name);
+                }
             },
             .ExpressionStatement => |stmt| {
                 std.debug.print("Visiting expression statement\n", .{});
@@ -183,7 +189,15 @@ pub const Compiler = struct {
                 const expr_type = self.type_env.types.get(@constCast(node)).?;
                 return self.compileUnOp(prefix.right, &prefix.operator, &expr_type);
             },
+            .BlockStatement => |bl_stmt| {
+                var compiled_statement: c.LLVMValueRef = null;
+                for (bl_stmt.statements.items) |*stmt| {
+                    compiled_statement = try self.codegen(stmt);
+                }
+                return compiled_statement;
+            },
             .If => |ifexp| {
+                //TODO: still need to turn the statement into an expression and take care of control flow: return, etc.
                 std.debug.print("Visiting if expression\n", .{});
                 const current_block = c.LLVMGetInsertBlock(self.builder);
                 const function = c.LLVMGetBasicBlockParent(current_block);
@@ -191,32 +205,102 @@ pub const Compiler = struct {
                 const then_bb = c.LLVMAppendBasicBlockInContext(self.context, function, "then");
                 const else_bb = c.LLVMAppendBasicBlockInContext(self.context, function, "else");
                 const merge_bb = c.LLVMAppendBasicBlockInContext(self.context, function, "ifcont");
+                const expr_type = self.type_env.types.get(@constCast(node)).?;
 
+                std.debug.print("Generating if condition\n", .{});
                 const condition = try self.codegen(ifexp.condition);
 
                 _ = c.LLVMBuildCondBr(self.builder, condition, then_bb, else_bb);
 
                 // then branch
                 c.LLVMPositionBuilderAtEnd(self.builder, then_bb);
+                //TODO: the scope should go into block statement
                 try self.symbol_table.enterScope();
-                for (ifexp.consequence.BlockStatement.statements.items) |*stmt| {
-                    _ = try self.codegen(stmt);
-                }
+                std.debug.print("Generating consequence\n", .{});
+                const cons = try self.codegen(ifexp.consequence);
                 self.symbol_table.exitScope();
                 _ = c.LLVMBuildBr(self.builder, merge_bb);
 
                 // else branch
                 c.LLVMPositionBuilderAtEnd(self.builder, else_bb);
+                var altern: c.LLVMValueRef = null;
                 if (ifexp.alternative) |alt| {
+                    std.debug.print("Generating alterantive\n", .{});
                     try self.symbol_table.enterScope();
-                    for (alt.BlockStatement.statements.items) |*stmt| {
-                        _ = try self.codegen(stmt);
-                    }
+
+                    altern = try self.codegen(alt);
                     self.symbol_table.exitScope();
                 }
+                std.debug.print("Generating merge branch\n", .{});
                 _ = c.LLVMBuildBr(self.builder, merge_bb);
 
+                std.debug.print("Positioning builder at merge branch\n", .{});
                 c.LLVMPositionBuilderAtEnd(self.builder, merge_bb);
+                if (expr_type.PrimitiveType != .Void) {
+                    const phi = c.LLVMBuildPhi(self.builder, self.getLLVMType(expr_type), "ifres");
+                    const phiValues = [_]c.LLVMValueRef{ cons, altern };
+                    const phiBlocks = [_]c.LLVMBasicBlockRef{ then_bb, else_bb };
+                    c.LLVMAddIncoming(phi, @as([*c]c.LLVMValueRef, @ptrCast(@constCast(&phiValues))), @as([*c]c.LLVMBasicBlockRef, @ptrCast(@constCast(&phiBlocks))), 2);
+                    return phi;
+                }
+                return null;
+            },
+            .FunctionLiteral => |fl| {
+                const cur_block = c.LLVMGetInsertBlock(self.builder);
+                const cur_instr = c.LLVMGetLastInstruction(cur_block);
+
+                try self.symbol_table.enterScope();
+                var param_types = try self.allocator.alloc(c.LLVMTypeRef, fl.parameters.items.len);
+                for (0..fl.parameters.items.len) |i| {
+                    const ast_type = self.type_env.defs.get(&fl.parameters.items[i]).?.typ;
+                    param_types[i] = self.getLLVMType(ast_type);
+                }
+                const func_type = c.LLVMFunctionType(self.getLLVMType(fl.return_type), @as([*c]c.LLVMTypeRef, @ptrCast(@constCast(param_types))), @as(c_uint, @intCast(fl.parameters.items.len)), 0);
+                const name = try self.allocator.dupeZ(u8, fl.name.?);
+                const function = c.LLVMAddFunction(self.module, name, func_type);
+                const entry_block = c.LLVMAppendBasicBlockInContext(self.context, function, "entry");
+
+                c.LLVMPositionBuilderAtEnd(self.builder, entry_block);
+                for (fl.parameters.items, 0..) |*fp, i| {
+                    const param_name = try self.allocator.dupeZ(u8, fp.FunctionParameter.ident.Identifier.value);
+                    const param = c.LLVMGetParam(function, @as(c_uint, @intCast(i)));
+                    try self.symbol_table.define(Symbol{
+                        .llvm_value = param,
+                        .name = param_name,
+                        .type_annotation = fp.FunctionParameter.inferred_type,
+                        .is_parameter = true,
+                    });
+                }
+                _ = try self.codegen(fl.body);
+                self.symbol_table.exitScope();
+
+                if (cur_instr) |_| {
+                    c.LLVMPositionBuilder(self.builder, cur_block, cur_instr);
+                } else {
+                    c.LLVMPositionBuilderAtEnd(self.builder, cur_block);
+                }
+
+                return null;
+            },
+            .FunctionParameter => |fp| {
+                const name = try self.allocator.dupeZ(u8, fp.ident.Identifier.value);
+                const alloca = c.LLVMBuildAlloca(self.builder, self.getLLVMType(fp.inferred_type), name);
+                try self.symbol_table.define(Symbol{
+                    .llvm_value = alloca,
+                    .name = name,
+                    .type_annotation = fp.inferred_type,
+                    .is_parameter = true,
+                });
+                return null;
+            },
+            .ReturnStatement => |rs| {
+                const typ = self.type_env.types.get(rs.return_value).?;
+                if (typ.PrimitiveType == .Void) {
+                    _ = c.LLVMBuildRetVoid(self.builder);
+                }
+                const expr = try self.codegen(rs.return_value);
+                _ = c.LLVMBuildRet(self.builder, expr);
+
                 return null;
             },
             else => unreachable,
