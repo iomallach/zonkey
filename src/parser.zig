@@ -212,6 +212,7 @@ pub const Parser = struct {
             tok.TokenType.PRINT => self.parsePrintCallStatement(),
             else => self.parseExpressionStatement(),
         };
+
         return node catch |err| {
             switch (err) {
                 error.OutOfMemory => |oom| return oom,

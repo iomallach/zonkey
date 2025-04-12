@@ -87,21 +87,26 @@ pub const TypeChecker = struct {
         };
     }
 
-    pub fn inferAndCheck(self: *TypeChecker, program: *ast.AstNode) !?ast.Type {
+    pub fn inferAndCheck(self: *TypeChecker, program: *ast.AstNode) error{ OutOfMemory, TypeViolation, UnboundIdentifier }!ast.Type {
         switch (program.*) {
             .Program => |*prog| {
                 for (prog.program.items) |*p| {
-                    _ = try self.inferAndCheck(p);
+                    _ = self.inferAndCheck(p) catch |err| switch (err) {
+                        error.UnboundIdentifier => continue,
+                        error.TypeViolation => continue,
+                        error.OutOfMemory => return err,
+                        else => unreachable,
+                    };
                 }
             },
             .LetStatement => |*ls| {
-                const exp_type = (try self.inferAndCheck(ls.expression)).?;
+                const exp_type = try self.inferAndCheck(ls.expression);
                 try self.type_env.types.putNoClobber(ls.expression, exp_type);
 
                 if (ls.inferred_type) |it| {
                     if (!std.meta.eql(exp_type, it)) {
                         try self.errors_list.append("Type of identifier does not equal the type of expression in let statement");
-                        return null;
+                        return error.TypeViolation;
                     }
                 } else {
                     ls.inferred_type = exp_type;
@@ -111,18 +116,24 @@ pub const TypeChecker = struct {
                 try self.type_env.defs.putNoClobber(ls.name, symbol);
             },
             .ReturnStatement => |*r| {
-                const ret_type = (try self.inferAndCheck(r.return_value)).?;
+                const ret_type = try self.inferAndCheck(r.return_value);
                 if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
-                    try self.errors_list.append(try std.fmt.allocPrint(self.allocator, "The type of return statement expression {any} does not equal the return type of the current function {any}", .{
-                        ret_type,
-                        self.current_function.?.return_type,
-                    }));
-                    return null;
+                    try self.errors_list.append(
+                        try std.fmt.allocPrint(
+                            self.allocator,
+                            "The type of return statement expression {any} does not equal the return type of the current function {any}",
+                            .{
+                                ret_type,
+                                self.current_function.?.return_type,
+                            },
+                        ),
+                    );
+                    return error.TypeViolation;
                 }
                 try self.type_env.types.putNoClobber(r.return_value, ret_type);
             },
             .ExpressionStatement => |*es| {
-                const exp_type = (try self.inferAndCheck(es.expression)).?;
+                const exp_type = try self.inferAndCheck(es.expression);
                 try self.type_env.types.putNoClobber(es.expression, exp_type);
                 return exp_type;
             },
@@ -143,10 +154,11 @@ pub const TypeChecker = struct {
                 unreachable;
             },
             .AssignmentStatement => |*as| {
-                const ident_type = (try self.inferAndCheck(as.name)).?;
-                const expr_type = (try self.inferAndCheck(as.expression)).?;
+                const ident_type = try self.inferAndCheck(as.name);
+                const expr_type = try self.inferAndCheck(as.expression);
                 if (!std.meta.eql(ident_type, expr_type)) {
-                    return null;
+                    try self.errors_list.append("Type of identifier does not equal the type of expression in assignment statement");
+                    return error.TypeViolation;
                 }
                 try self.type_env.types.putNoClobber(as.expression, expr_type);
             },
@@ -177,18 +189,24 @@ pub const TypeChecker = struct {
             },
             .ArrayLiteral => unreachable, //TODO: implement later
             .FunctionCall => |*fc| {
-                const func = (try self.inferAndCheck(fc.function)).?;
+                var encountered_error = false;
+                const func = try self.inferAndCheck(fc.function);
                 if (func.Function.arg_types.items.len != fc.arguments.items.len) {
                     try self.errors_list.append("Argument number mismatch");
-                    return null;
+                    return error.TypeViolation;
                 }
                 for (func.Function.arg_types.items, 0..) |p, i| {
-                    const passed_type = (try self.inferAndCheck(&fc.arguments.items[i])).?;
+                    const passed_type = try self.inferAndCheck(&fc.arguments.items[i]);
                     try self.type_env.types.putNoClobber(&fc.arguments.items[i], passed_type);
 
                     if (!std.meta.eql(p, passed_type)) {
                         try self.errors_list.append("Function parameter type mismatch");
+                        // not returning to record more error and print a better error message
+                        encountered_error = true;
                     }
+                }
+                if (encountered_error) {
+                    return error.TypeViolation;
                 }
                 const symbol = try self.type_env.resolveSymbol(fc.function.Identifier.value);
                 try self.type_env.uses.putNoClobber(program, symbol);
@@ -196,70 +214,69 @@ pub const TypeChecker = struct {
                 return func.Function.return_type;
             },
             .BuiltInCall => |*bic| {
-                const expr_type = (try self.inferAndCheck(bic.argument)).?;
+                const expr_type = try self.inferAndCheck(bic.argument);
                 try self.type_env.types.putNoClobber(bic.argument, expr_type);
 
                 return ast.Type.Void;
             },
             .If => |iff| {
-                const cond_type = (try self.inferAndCheck(iff.condition)).?;
+                const cond_type = try self.inferAndCheck(iff.condition);
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .Bool) {
-                    try self.errors_list.append("Expected boolean expression");
+                    try self.errors_list.append("Condition expression must be of boolen type");
+                    return error.TypeViolation;
                 }
 
                 const cons_type = try self.inferAndCheck(iff.consequence);
-                var alt_type: ?ast.Type = null;
                 if (iff.alternative) |alt| {
-                    alt_type = try self.inferAndCheck(alt);
-                    if (cons_type != null and alt_type != null and std.meta.eql(cons_type, alt_type)) {
-                        return cons_type.?;
+                    const alt_type = try self.inferAndCheck(alt);
+                    if (!std.meta.eql(cons_type, alt_type)) {
+                        try self.errors_list.append("Type of consequence and alternative must be the same");
+                        return error.TypeViolation;
                     }
-                    // TODO: else if one of them null, report an error
-                    return ast.Type.Void;
                 }
 
-                return cons_type orelse ast.Type.Void;
+                return cons_type;
             },
             .Prefix => |*pref| {
-                const exp_type = (try self.inferAndCheck(pref.right)).?;
+                const exp_type = try self.inferAndCheck(pref.right);
                 switch (pref.operator) {
                     .Negation => switch (exp_type) {
                         .Bool => return exp_type,
                         else => {
                             try self.errors_list.append("Unsupported prefix expression");
-                            return null;
+                            return error.TypeViolation;
                         },
                     },
                     .Minus => switch (exp_type) {
                         .Float, .Integer => return exp_type,
                         else => {
                             try self.errors_list.append("Unsupported prefix expression");
-                            return null;
+                            return error.TypeViolation;
                         },
                     },
                 }
             },
             .Infix => |infx| {
-                const left_type = (try self.inferAndCheck(infx.left)).?;
-                const right_type = (try self.inferAndCheck(infx.right)).?;
+                const left_type = try self.inferAndCheck(infx.left);
+                const right_type = try self.inferAndCheck(infx.right);
 
                 //infix on functions doesn't make sense
                 if (left_type == .Function or right_type == .Function) {
                     try self.errors_list.append("Invalid infix expression");
-                    return null;
+                    return error.TypeViolation;
                 }
                 // string and void are immediately unsupported in infix at the moment
                 if (left_type == .String or left_type == .Void or right_type == .String or right_type == .Void) {
                     try self.errors_list.append("Invalid infix expression");
-                    return null;
+                    return error.TypeViolation;
                 }
 
                 switch (infx.operator) {
                     .Plus, .Minus, .Multiply, .Divide => {
                         if (left_type == .Bool or right_type == .Bool) {
                             try self.errors_list.append("Invalid infix expression");
-                            return null;
+                            return error.TypeViolation;
                         }
                         if (left_type == .Float or right_type == .Float) {
                             return ast.Type.Float;
@@ -274,7 +291,7 @@ pub const TypeChecker = struct {
                     .Greater, .Less, .GreaterEqual, .LessEqual => {
                         if (left_type == .Bool or right_type == .Bool) {
                             try self.errors_list.append("Invalid infix expression");
-                            return null;
+                            return error.TypeViolation;
                         }
                         return ast.Type.Bool;
                     },
@@ -283,6 +300,7 @@ pub const TypeChecker = struct {
             .Index => unreachable, //TODO: implement
             .Identifier => |ident| {
                 //TODO: catch and report the error value
+                //TODO: consider moving away from putNoClobber, as it panics and there is no room to handle unbound gracefully with a message
                 try self.type_env.uses.putNoClobber(program, try self.type_env.resolveSymbol(ident.value));
                 return (try self.type_env.resolveSymbol(ident.value)).typ;
             },
@@ -300,7 +318,7 @@ pub const TypeChecker = struct {
             },
             else => unreachable,
         }
-        return null;
+        return ast.Type.Void;
     }
 };
 
