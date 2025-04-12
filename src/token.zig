@@ -44,6 +44,9 @@ pub const TokenType = enum {
     RETURN,
     WHILE,
 
+    // Builtins
+    PRINT,
+
     // Bool
     TRUE,
     FALSE,
@@ -81,6 +84,10 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "while", TokenType.WHILE },
 });
 
+const builtins = std.StaticStringMap(TokenType).initComptime(.{
+    .{ "print", TokenType.PRINT },
+});
+
 pub fn map_identifier(keyword: []const u8) TokenType {
-    return keywords.get(keyword) orelse TokenType.IDENT;
+    return keywords.get(keyword) orelse builtins.get(keyword) orelse TokenType.IDENT;
 }

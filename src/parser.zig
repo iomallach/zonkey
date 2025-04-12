@@ -209,6 +209,7 @@ pub const Parser = struct {
                     break :blk self.parseExpressionStatement();
                 }
             },
+            tok.TokenType.PRINT => self.parsePrintCallStatement(),
             else => self.parseExpressionStatement(),
         };
         return node catch |err| {
@@ -300,6 +301,29 @@ pub const Parser = struct {
             .ExpressionStatement = ast.ExpressionStatement{
                 .token = token,
                 .expression = heap_expression,
+            },
+        };
+    }
+
+    //TODO: temporary thing, decide what to do with it
+    fn parsePrintCallStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
+        const ident = try self.alloc.create(ast.AstNode);
+        ident.* = try self.parseIdentifier();
+
+        try self.matchNextAndAdvance(tok.TokenType.LPAREN);
+        self.advance();
+
+        const expr = try self.alloc.create(ast.AstNode);
+        expr.* = try self.parseExpression(Precedence.LOWEST);
+
+        try self.matchNextAndAdvance(tok.TokenType.RPAREN);
+        try self.matchNextAndAdvance(tok.TokenType.SEMICOLON);
+
+        return ast.AstNode{
+            .BuiltInCall = ast.BuiltInCall{
+                .token = ident.Identifier.token,
+                .function = ident,
+                .argument = expr,
             },
         };
     }
@@ -1362,4 +1386,25 @@ test "Parse assigment statement" {
             .string => |v| try TestHelpers.test_literal_expression(expression, v),
         }
     }
+}
+
+test "Parse call print builtin" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "print(3 + 4);";
+
+    var lexer = lex.Lexer.init(input, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, allocator);
+
+    const program = try parser.parse();
+    try TestHelpers.test_parse_errors(&parser);
+
+    try std.testing.expectEqual(1, program.Program.program.items.len);
+    const infix = &program.Program.program.items[0].BuiltInCall.argument.Infix;
+    try TestHelpers.test_infix_expression(infix, 3, 4, ast.BinaryOp.Plus);
 }

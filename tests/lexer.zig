@@ -84,7 +84,7 @@ test "Test string literals error" {
 }
 
 test "Test keywords" {
-    const input = "fn let if else return true false int float string bool";
+    const input = "fn let if else return true false int float string bool print";
     const tests = [_]TestCase{
         .{ .expected_type = TokenType.FUNCTION, .expected_literal = "fn" },
         .{ .expected_type = TokenType.LET, .expected_literal = "let" },
@@ -97,6 +97,7 @@ test "Test keywords" {
         .{ .expected_type = TokenType.Type, .expected_literal = "float" },
         .{ .expected_type = TokenType.Type, .expected_literal = "string" },
         .{ .expected_type = TokenType.Type, .expected_literal = "bool" },
+        .{ .expected_type = TokenType.PRINT, .expected_literal = "print" },
     };
     const alloc = gpa.allocator();
     var lex = zonkey.lexer.Lexer.init(input, alloc);

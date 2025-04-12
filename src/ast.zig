@@ -142,6 +142,7 @@ const AstNodeKind = enum {
     FunctionLiteral,
     FunctionParameter,
     FunctionCall,
+    BuiltInCall,
     Prefix,
     Infix,
     If,
@@ -165,6 +166,7 @@ pub const AstNode = union(AstNodeKind) {
     FunctionLiteral: FunctionLiteral,
     FunctionParameter: FunctionParameter,
     FunctionCall: FunctionCall,
+    BuiltInCall: BuiltInCall,
     Prefix: Prefix,
     Infix: Infix,
     If: If,
@@ -461,6 +463,12 @@ pub const FunctionCall = struct {
         }
         try writer.writeAll(")");
     }
+};
+
+pub const BuiltInCall = struct {
+    token: tok.Token,
+    function: *AstNode,
+    argument: *AstNode,
 };
 
 pub const Prefix = struct {

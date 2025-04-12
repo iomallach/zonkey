@@ -195,6 +195,12 @@ pub const TypeChecker = struct {
 
                 return func.Function.return_type;
             },
+            .BuiltInCall => |*bic| {
+                const expr_type = (try self.inferAndCheck(bic.argument)).?;
+                try self.type_env.types.putNoClobber(bic.argument, expr_type);
+
+                return ast.Type.Void;
+            },
             .If => |iff| {
                 const cond_type = (try self.inferAndCheck(iff.condition)).?;
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
@@ -653,4 +659,22 @@ test "Infer assignment statements" {
         const assign_ident = program.Program.program.items[1].AssignmentStatement.name;
         try std.testing.expectEqual(test_case.expected, checker.type_env.uses.get(assign_ident).?.typ);
     }
+}
+
+test "Infer builtin print call" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "print(3 + 4);";
+
+    var program = try parse_program(input, allocator);
+    var checker = try TypeChecker.init(allocator);
+    _ = try checker.inferAndCheck(&program);
+
+    try test_errors(&checker.errors_list);
+    try std.testing.expectEqual(
+        ast.Type.Integer,
+        checker.type_env.types.get(program.Program.program.items[0].BuiltInCall.argument).?,
+    );
 }
