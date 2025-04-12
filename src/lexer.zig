@@ -97,7 +97,9 @@ pub const Lexer = struct {
         var span: tok.TokenSpan = undefined;
 
         self.maybe_increment_line();
-        _ = self.consume_while(Lexer.is_whitespace);
+        while (self.is_whitespace()) {
+            self.advance();
+        }
 
         switch (self.char()) {
             '[' => {

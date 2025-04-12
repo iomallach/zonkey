@@ -1,0 +1,16 @@
+fn foo(x: float, y: float) float {
+    let a = x * y;
+    return a + 1.0;
+}
+let res = foo(1.1, 2.2);
+let tt = if (true) { 10; } else { 12; };
+let a: float = 5.1;
+let b: float = a;
+let c: float = a + b;
+let d = !true;
+if (d) {
+  let b = 3;
+} else {
+  a - b;
+}
+

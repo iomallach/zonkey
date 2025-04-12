@@ -19,6 +19,7 @@ const Symbol = struct {
     name: [:0]const u8,
     type_annotation: ast.Type,
     llvm_value: c.LLVMValueRef,
+    llvm_type: c.LLVMTypeRef,
     is_parameter: bool,
 };
 
@@ -143,6 +144,7 @@ pub const Compiler = struct {
                     .name = name,
                     .type_annotation = inferred_type,
                     .llvm_value = alloca,
+                    .llvm_type = self.getLLVMType(inferred_type),
                     .is_parameter = false,
                 });
                 return alloca;
@@ -246,6 +248,7 @@ pub const Compiler = struct {
                 return null;
             },
             .FunctionLiteral => |fl| {
+                std.debug.print("Visiting function declaration\n", .{});
                 const cur_block = c.LLVMGetInsertBlock(self.builder);
                 const cur_instr = c.LLVMGetLastInstruction(cur_block);
 
@@ -268,11 +271,20 @@ pub const Compiler = struct {
                         .llvm_value = param,
                         .name = param_name,
                         .type_annotation = fp.FunctionParameter.inferred_type,
+                        .llvm_type = self.getLLVMType(fp.FunctionParameter.inferred_type),
                         .is_parameter = true,
                     });
                 }
                 _ = try self.codegen(fl.body);
                 self.symbol_table.exitScope();
+
+                try self.symbol_table.define(Symbol{
+                    .name = name,
+                    .llvm_value = function,
+                    .llvm_type = func_type,
+                    .type_annotation = fl.return_type,
+                    .is_parameter = false,
+                });
 
                 if (cur_instr) |_| {
                     c.LLVMPositionBuilder(self.builder, cur_block, cur_instr);
@@ -282,18 +294,8 @@ pub const Compiler = struct {
 
                 return null;
             },
-            .FunctionParameter => |fp| {
-                const name = try self.allocator.dupeZ(u8, fp.ident.Identifier.value);
-                const alloca = c.LLVMBuildAlloca(self.builder, self.getLLVMType(fp.inferred_type), name);
-                try self.symbol_table.define(Symbol{
-                    .llvm_value = alloca,
-                    .name = name,
-                    .type_annotation = fp.inferred_type,
-                    .is_parameter = true,
-                });
-                return null;
-            },
             .ReturnStatement => |rs| {
+                std.debug.print("Visiting return statement\n", .{});
                 const typ = self.type_env.types.get(rs.return_value).?;
                 if (typ.PrimitiveType == .Void) {
                     _ = c.LLVMBuildRetVoid(self.builder);
@@ -302,6 +304,24 @@ pub const Compiler = struct {
                 _ = c.LLVMBuildRet(self.builder, expr);
 
                 return null;
+            },
+            .FunctionCall => |fc| {
+                std.debug.print("Visiting function call\n", .{});
+                const function = self.symbol_table.lookup(fc.function.Identifier.value).?;
+                var params = try self.allocator.alloc(c.LLVMValueRef, fc.arguments.items.len);
+                for (fc.arguments.items, 0..) |*arg, i| {
+                    params[i] = try self.codegen(arg);
+                }
+                const call = c.LLVMBuildCall2(
+                    self.builder,
+                    function.llvm_type,
+                    function.llvm_value,
+                    @as([*c]c.LLVMValueRef, @ptrCast(params)),
+                    @as(c_uint, @intCast(fc.arguments.items.len)),
+                    function.name,
+                );
+
+                return call;
             },
             else => unreachable,
         }
