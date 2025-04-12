@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const tok = @import("token.zig");
 
 pub const Symbol = struct {
     name: []const u8,
@@ -105,7 +106,27 @@ pub const TypeChecker = struct {
 
                 if (ls.inferred_type) |it| {
                     if (!std.meta.eql(exp_type, it)) {
-                        try self.errors_list.append("Type of identifier does not equal the type of expression in let statement");
+                        const spaces = try self.allocator.alloc(u8, ls.token.span.start);
+                        @memset(spaces, ' ');
+
+                        const error_message = try std.fmt.allocPrint(
+                            self.allocator,
+                            \\ Expected expression to be of type {any}, defined type was {any}, but got {any} instead at line {d}, column {d}
+                            \\ {s}
+                            \\ {s}^ here
+                            \\
+                        ,
+                            .{
+                                ls.inferred_type.?,
+                                ls.inferred_type.?,
+                                exp_type,
+                                ls.token.span.line_number,
+                                ls.token.span.start,
+                                ls.token.span.source_chunk,
+                                spaces,
+                            },
+                        );
+                        try self.errors_list.append(error_message);
                         return error.TypeViolation;
                     }
                 }
@@ -117,16 +138,26 @@ pub const TypeChecker = struct {
             .ReturnStatement => |r| {
                 const ret_type = try self.inferAndCheck(r.return_value);
                 if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
-                    try self.errors_list.append(
-                        try std.fmt.allocPrint(
-                            self.allocator,
-                            "The type of return statement expression {any} does not equal the return type of the current function {any}",
-                            .{
-                                ret_type,
-                                self.current_function.?.return_type,
-                            },
-                        ),
+                    const spaces = try self.allocator.alloc(u8, r.token.span.start);
+                    @memset(spaces, ' ');
+
+                    const error_message = try std.fmt.allocPrint(
+                        self.allocator,
+                        \\ The type of the return statement does not match the declared return function type: expected {any}, got {any} at line {d}, columnd {d}
+                        \\ {s}
+                        \\ {s}^ here
+                        \\
+                    ,
+                        .{
+                            self.current_function.?.return_type,
+                            ret_type,
+                            r.token.span.line_number,
+                            r.token.span.start,
+                            r.token.span.source_chunk,
+                            spaces,
+                        },
                     );
+                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 try self.type_env.types.putNoClobber(r.return_value, ret_type);
