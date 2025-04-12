@@ -222,7 +222,7 @@ pub const TypeChecker = struct {
                 const cond_type = try self.inferAndCheck(iff.condition);
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .Bool) {
-                    try self.errors_list.append("Condition expression must be of boolen type");
+                    try self.errors_list.append("Condition expression must be of boolean type");
                     return error.TypeViolation;
                 }
 
@@ -234,7 +234,6 @@ pub const TypeChecker = struct {
                         return error.TypeViolation;
                     }
                 }
-
                 return cons_type;
             },
             .Prefix => |pref| {
@@ -299,8 +298,14 @@ pub const TypeChecker = struct {
             .Index => unreachable, //TODO: implement
             .Identifier => |ident| {
                 //TODO: catch and report the error value
+                const symbol = self.type_env.resolveSymbol(ident.value) catch |err| {
+                    if (err == error.UnboundIdentifier) {
+                        try self.errors_list.append("Unbound identifier");
+                    }
+                    return err;
+                };
                 try self.type_env.uses.putNoClobber(program, try self.type_env.resolveSymbol(ident.value));
-                return (try self.type_env.resolveSymbol(ident.value)).typ;
+                return symbol.typ;
             },
             .IntegerLiteral => {
                 return ast.Type.Integer;
@@ -333,7 +338,6 @@ pub fn test_errors(errors: *std.ArrayList([]const u8)) !void {
 fn parse_program(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
-    const tok = @import("token.zig");
 
     var lexer = Lexer.init(input, allocator);
 

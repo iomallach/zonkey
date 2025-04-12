@@ -240,9 +240,19 @@ pub fn main() !void {
 
     var type_checker = try tc.TypeChecker.init(allocator);
     _ = try type_checker.inferAndCheck(&program);
+    if (type_checker.errors_list.items.len > 0) {
+        std.debug.print("Errors:\n", .{});
+        for (type_checker.errors_list.items, 1..) |e, i| {
+            std.debug.print("  {d}: {s}\n", .{ i, e });
+        }
+        return error.Badaboom;
+    }
 
     var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), &type_checker.type_env, allocator);
     defer compiler.deinit();
 
+    for (program.Program.program.items) |stmt| {
+        std.debug.print("Statement: {any}\n", .{stmt});
+    }
     try compiler.run(&program);
 }
