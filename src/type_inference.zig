@@ -36,9 +36,9 @@ const Scope = struct {
 pub const TypeEnvironment = struct {
     allocator: std.mem.Allocator,
     current_scope: *Scope,
-    types: std.AutoHashMap(*ast.AstNode, ast.Type), // types of expression, e.g. infix, prefix, calls
-    defs: std.AutoHashMap(*ast.AstNode, Symbol), // mapping from definition to symbol
-    uses: std.AutoHashMap(*ast.AstNode, Symbol), // mapping from reference to symbol, symbol taken from scopes
+    types: std.AutoHashMap(*const ast.AstNode, ast.Type), // types of expression, e.g. infix, prefix, calls
+    defs: std.AutoHashMap(*const ast.AstNode, Symbol), // mapping from definition to symbol
+    uses: std.AutoHashMap(*const ast.AstNode, Symbol), // mapping from reference to symbol, symbol taken from scopes
 
     pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!TypeEnvironment {
         const current_scope = try allocator.create(Scope);
@@ -47,9 +47,9 @@ pub const TypeEnvironment = struct {
         return TypeEnvironment{
             .allocator = allocator,
             .current_scope = current_scope,
-            .types = std.AutoHashMap(*ast.AstNode, ast.Type).init(allocator),
-            .defs = std.AutoHashMap(*ast.AstNode, Symbol).init(allocator),
-            .uses = std.AutoHashMap(*ast.AstNode, Symbol).init(allocator),
+            .types = std.AutoHashMap(*const ast.AstNode, ast.Type).init(allocator),
+            .defs = std.AutoHashMap(*const ast.AstNode, Symbol).init(allocator),
+            .uses = std.AutoHashMap(*const ast.AstNode, Symbol).init(allocator),
         };
     }
 
@@ -76,7 +76,7 @@ pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     type_env: TypeEnvironment,
     errors_list: std.ArrayList([]const u8),
-    current_function: ?*ast.FunctionLiteral,
+    current_function: ?*const ast.FunctionLiteral,
 
     pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!TypeChecker {
         return TypeChecker{
@@ -87,9 +87,9 @@ pub const TypeChecker = struct {
         };
     }
 
-    pub fn inferAndCheck(self: *TypeChecker, program: *ast.AstNode) error{ OutOfMemory, TypeViolation, UnboundIdentifier }!ast.Type {
+    pub fn inferAndCheck(self: *TypeChecker, program: *const ast.AstNode) error{ OutOfMemory, TypeViolation, UnboundIdentifier }!ast.Type {
         switch (program.*) {
-            .Program => |*prog| {
+            .Program => |prog| {
                 for (prog.program.items) |*p| {
                     _ = self.inferAndCheck(p) catch |err| switch (err) {
                         error.UnboundIdentifier => continue,
@@ -99,7 +99,7 @@ pub const TypeChecker = struct {
                     };
                 }
             },
-            .LetStatement => |*ls| {
+            .LetStatement => |ls| {
                 const exp_type = try self.inferAndCheck(ls.expression);
                 try self.type_env.types.putNoClobber(ls.expression, exp_type);
 
@@ -108,14 +108,13 @@ pub const TypeChecker = struct {
                         try self.errors_list.append("Type of identifier does not equal the type of expression in let statement");
                         return error.TypeViolation;
                     }
-                } else {
-                    ls.inferred_type = exp_type;
                 }
 
                 const symbol = try self.type_env.defineSymbol(ls.name.Identifier.value, exp_type);
+                //TODO: consider moving away from putNoClobber, as it panics and there is no room to handle already defined gracefully with a message
                 try self.type_env.defs.putNoClobber(ls.name, symbol);
             },
-            .ReturnStatement => |*r| {
+            .ReturnStatement => |r| {
                 const ret_type = try self.inferAndCheck(r.return_value);
                 if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
                     try self.errors_list.append(
@@ -132,12 +131,12 @@ pub const TypeChecker = struct {
                 }
                 try self.type_env.types.putNoClobber(r.return_value, ret_type);
             },
-            .ExpressionStatement => |*es| {
+            .ExpressionStatement => |es| {
                 const exp_type = try self.inferAndCheck(es.expression);
                 try self.type_env.types.putNoClobber(es.expression, exp_type);
                 return exp_type;
             },
-            .BlockStatement => |*bs| {
+            .BlockStatement => |bs| {
                 try self.type_env.enterScope();
                 var last_stmt_type: ?ast.Type = null;
 
@@ -153,7 +152,7 @@ pub const TypeChecker = struct {
                 _ = wls;
                 unreachable;
             },
-            .AssignmentStatement => |*as| {
+            .AssignmentStatement => |as| {
                 const ident_type = try self.inferAndCheck(as.name);
                 const expr_type = try self.inferAndCheck(as.expression);
                 if (!std.meta.eql(ident_type, expr_type)) {
@@ -188,7 +187,7 @@ pub const TypeChecker = struct {
                 return func_type;
             },
             .ArrayLiteral => unreachable, //TODO: implement later
-            .FunctionCall => |*fc| {
+            .FunctionCall => |fc| {
                 var encountered_error = false;
                 const func = try self.inferAndCheck(fc.function);
                 if (func.Function.arg_types.items.len != fc.arguments.items.len) {
@@ -213,7 +212,7 @@ pub const TypeChecker = struct {
 
                 return func.Function.return_type;
             },
-            .BuiltInCall => |*bic| {
+            .BuiltInCall => |bic| {
                 const expr_type = try self.inferAndCheck(bic.argument);
                 try self.type_env.types.putNoClobber(bic.argument, expr_type);
 
@@ -238,7 +237,7 @@ pub const TypeChecker = struct {
 
                 return cons_type;
             },
-            .Prefix => |*pref| {
+            .Prefix => |pref| {
                 const exp_type = try self.inferAndCheck(pref.right);
                 switch (pref.operator) {
                     .Negation => switch (exp_type) {
@@ -300,7 +299,6 @@ pub const TypeChecker = struct {
             .Index => unreachable, //TODO: implement
             .Identifier => |ident| {
                 //TODO: catch and report the error value
-                //TODO: consider moving away from putNoClobber, as it panics and there is no room to handle unbound gracefully with a message
                 try self.type_env.uses.putNoClobber(program, try self.type_env.resolveSymbol(ident.value));
                 return (try self.type_env.resolveSymbol(ident.value)).typ;
             },

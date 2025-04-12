@@ -111,7 +111,7 @@ pub const FunctionType = struct {
     return_type: Type,
     arg_types: std.ArrayList(Type),
 
-    pub fn init(func_params: *std.ArrayList(AstNode), ret_type: Type, allocator: std.mem.Allocator) !FunctionType {
+    pub fn init(func_params: *const std.ArrayList(AstNode), ret_type: Type, allocator: std.mem.Allocator) !FunctionType {
         var types = std.ArrayList(Type).init(allocator);
         for (func_params.*.items) |fp| {
             try types.append(fp.FunctionParameter.inferred_type);
