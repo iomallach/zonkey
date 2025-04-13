@@ -189,6 +189,32 @@ pub const AstNode = union(AstNodeKind) {
     Infix: Infix,
     If: If,
     Index: Index,
+
+    pub fn getToken(self: *const AstNode) *const tok.Token {
+        return switch (self.*) {
+            .Program => |n| n.getToken(),
+            .LetStatement => |n| n.getToken(),
+            .ReturnStatement => |n| n.getToken(),
+            .ExpressionStatement => |n| n.getToken(),
+            .BlockStatement => |n| n.getToken(),
+            .WhileLoopStatement => |n| n.getToken(),
+            .AssignmentStatement => |n| n.getToken(),
+            .Identifier => |n| n.getToken(),
+            .IntegerLiteral => |n| n.getToken(),
+            .FloatLiteral => |n| n.getToken(),
+            .BooleanLiteral => |n| n.getToken(),
+            .StringLiteral => |n| n.getToken(),
+            .ArrayLiteral => |n| n.getToken(),
+            .FunctionLiteral => |n| n.getToken(),
+            .FunctionParameter => |n| n.getToken(),
+            .FunctionCall => |n| n.getToken(),
+            .BuiltInCall => |n| n.getToken(),
+            .Prefix => |n| n.getToken(),
+            .Infix => |n| n.getToken(),
+            .If => |n| n.getToken(),
+            .Index => |n| n.getToken(),
+        };
+    }
 };
 
 pub const Program = struct {
@@ -209,6 +235,13 @@ pub const Program = struct {
     pub fn addStatement(self: *Program, stmt: AstNode) !void {
         try self.program.append(stmt);
     }
+
+    pub fn getToken(self: *const Program) *const tok.Token {
+        if (self.program.items.len > 0) {
+            return self.program.items[0].getToken();
+        }
+        @panic("Calling getToken on an empty program");
+    }
 };
 
 pub const LetStatement = struct {
@@ -216,16 +249,28 @@ pub const LetStatement = struct {
     name: *AstNode, // Identifier
     expression: *AstNode, // ExpressionNode
     inferred_type: ?Type,
+
+    pub fn getToken(self: *const LetStatement) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const ReturnStatement = struct {
     token: tok.Token,
     return_value: *AstNode, // ExpressionNode
+
+    pub fn getToken(self: *const ReturnStatement) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const ExpressionStatement = struct {
     token: tok.Token,
     expression: *AstNode, // ExpressionNode
+
+    pub fn getToken(self: *const ExpressionStatement) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const BlockStatement = struct {
@@ -244,48 +289,84 @@ pub const BlockStatement = struct {
     pub fn addStatement(self: *BlockStatement, stmt: AstNode) !void {
         try self.statements.append(stmt);
     }
+
+    pub fn getToken(self: *const BlockStatement) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const WhileLoopStatement = struct {
     token: tok.Token,
     condition: *AstNode, // Expression
     statements: *AstNode, // BlockStatement
+
+    pub fn getToken(self: *const WhileLoopStatement) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const AssignmentStatement = struct {
     token: tok.Token,
     name: *AstNode,
     expression: *AstNode,
+
+    pub fn getToken(self: *const AssignmentStatement) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const Identifier = struct {
     token: tok.Token,
     value: []const u8,
+
+    pub fn getToken(self: *const Identifier) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const IntegerLiteral = struct {
     token: tok.Token,
     value: i64,
+
+    pub fn getToken(self: *const IntegerLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const FloatLiteral = struct {
     token: tok.Token,
     value: f64,
+
+    pub fn getToken(self: *const FloatLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const BooleanLiteral = struct {
     token: tok.Token,
     value: bool,
+
+    pub fn getToken(self: *const BooleanLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const StringLiteral = struct {
     token: tok.Token,
     value: []const u8,
+
+    pub fn getToken(self: *const StringLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const ArrayLiteral = struct {
     token: tok.Token,
     elements: std.ArrayList(AstNode),
+
+    pub fn getToken(self: *const ArrayLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const FunctionLiteral = struct {
@@ -294,29 +375,50 @@ pub const FunctionLiteral = struct {
     body: *AstNode,
     name: ?[]const u8,
     return_type: Type,
+
+    pub fn getToken(self: *const FunctionLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const FunctionParameter = struct {
+    token: tok.Token,
     ident: *AstNode, // Identifier,
     inferred_type: Type,
+
+    pub fn getToken(self: *const FunctionParameter) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const FunctionCall = struct {
     token: tok.Token,
     function: *AstNode,
     arguments: std.ArrayList(AstNode),
+
+    pub fn getToken(self: *const FunctionCall) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const BuiltInCall = struct {
     token: tok.Token,
     function: *AstNode,
     argument: *AstNode,
+
+    pub fn getToken(self: *const BuiltInCall) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const Prefix = struct {
     token: tok.Token,
     operator: UnaryOp,
     right: *AstNode,
+
+    pub fn getToken(self: *const Prefix) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const Infix = struct {
@@ -324,6 +426,10 @@ pub const Infix = struct {
     operator: BinaryOp,
     left: *AstNode,
     right: *AstNode,
+
+    pub fn getToken(self: *const Infix) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const If = struct {
@@ -331,10 +437,18 @@ pub const If = struct {
     condition: *AstNode,
     consequence: *AstNode,
     alternative: ?*AstNode,
+
+    pub fn getToken(self: *const If) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const Index = struct {
     token: tok.Token,
     expression: *AstNode,
     indexed_expression: *AstNode,
+
+    pub fn getToken(self: *const Index) *const tok.Token {
+        return &self.token;
+    }
 };

@@ -597,6 +597,7 @@ pub const Parser = struct {
 
         var type_annotation = self.parsePrimitiveTypeAnnotation();
         try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
+            .token = ident.token,
             .ident = heap_ident,
             .inferred_type = type_annotation,
         } });
@@ -618,6 +619,7 @@ pub const Parser = struct {
 
             type_annotation = self.parsePrimitiveTypeAnnotation();
             try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
+                .token = ident.token,
                 .ident = heap_ident,
                 .inferred_type = type_annotation,
             } });
