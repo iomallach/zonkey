@@ -36,6 +36,20 @@ const Scope = struct {
     }
 };
 
+//TODO: this should be moved into diagnostics stuff
+const red = "\x1b[31m";
+const reset = "\x1b[0m";
+
+fn getErrorMarker(allocator: std.mem.Allocator) ![]const u8 {
+    return try std.fmt.allocPrint(allocator, "{s}error:{s}", .{ red, reset });
+}
+
+fn getErrorPointerSpaces(token: *const tok.Token, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
+    const spaces = try allocator.alloc(u8, token.span.start);
+    @memset(spaces, ' ');
+    return spaces;
+}
+
 pub const TypeEnvironment = struct {
     allocator: std.mem.Allocator,
     current_scope: *Scope,
@@ -109,24 +123,22 @@ pub const TypeChecker = struct {
 
                 if (ls.inferred_type) |it| {
                     if (!std.meta.eql(exp_type, it)) {
-                        const spaces = try self.allocator.alloc(u8, ls.expression.getToken().span.start);
-                        @memset(spaces, ' ');
-
                         const error_message = try std.fmt.allocPrint(
                             self.allocator,
-                            \\ Expected expression to be of type '{any}', defined type was '{any}', but got '{any}' instead at line {d}, column {d}
+                            \\ {s} expected expression to be of type '{any}', defined type was '{any}', but got '{any}' instead at line {d}, column {d}
                             \\ {s}
                             \\ {s}^ here
                             \\
                         ,
                             .{
+                                try getErrorMarker(self.allocator),
                                 ls.inferred_type.?,
                                 ls.inferred_type.?,
                                 exp_type,
                                 ls.expression.getToken().span.line_number,
                                 ls.expression.getToken().span.start,
                                 ls.expression.getToken().span.source_chunk,
-                                spaces,
+                                try getErrorPointerSpaces(ls.expression.getToken(), self.allocator),
                             },
                         );
                         try self.errors_list.append(error_message);
@@ -141,23 +153,21 @@ pub const TypeChecker = struct {
             .ReturnStatement => |r| {
                 const ret_type = try self.inferAndCheck(r.return_value);
                 if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
-                    const spaces = try self.allocator.alloc(u8, r.return_value.getToken().span.start);
-                    @memset(spaces, ' ');
-
                     const error_message = try std.fmt.allocPrint(
                         self.allocator,
-                        \\ The type of the return statement does not match the declared return function type: expected '{any}', got '{any}' at line {d}, column {d}
+                        \\ {s} the type of the return statement does not match the declared return function type: expected '{any}', got '{any}' at line {d}, column {d}
                         \\ {s}
                         \\ {s}^ here
                         \\
                     ,
                         .{
+                            try getErrorMarker(self.allocator),
                             self.current_function.?.return_type,
                             ret_type,
                             r.return_value.getToken().span.line_number,
                             r.return_value.getToken().span.start,
                             r.return_value.getToken().span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(r.return_value.getToken(), self.allocator),
                         },
                     );
                     try self.errors_list.append(error_message);
@@ -190,24 +200,22 @@ pub const TypeChecker = struct {
                 const ident_type = try self.inferAndCheck(as.name);
                 const expr_type = try self.inferAndCheck(as.expression);
                 if (!std.meta.eql(ident_type, expr_type)) {
-                    const spaces = try self.allocator.alloc(u8, as.expression.getToken().span.start);
-                    @memset(spaces, ' ');
-
                     const error_message = try std.fmt.allocPrint(
                         self.allocator,
-                        \\ Identifier {s} is of type '{any}', attempting to assign a value of type '{any}' at line {d}, column {d}
+                        \\ {s} identifier {s} is of type '{any}', attempting to assign a value of type '{any}' at line {d}, column {d}
                         \\ {s}
                         \\ {s}^ here
                         \\
                     ,
                         .{
+                            try getErrorMarker(self.allocator),
                             as.name.Identifier.value,
                             ident_type,
                             expr_type,
                             as.expression.getToken().span.line_number,
                             as.expression.getToken().span.start,
                             as.expression.getToken().span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(as.expression.getToken(), self.allocator),
                         },
                     );
                     try self.errors_list.append(error_message);
@@ -246,24 +254,25 @@ pub const TypeChecker = struct {
                 const func = try self.inferAndCheck(fc.function);
                 //FIXME: broken for less arguments (panic)
                 if (func.Function.arg_types.items.len != fc.arguments.items.len) {
-                    const spaces = try self.allocator.alloc(u8, fc.arguments.items[func.Function.arg_types.items.len].getToken().span.start);
-                    @memset(spaces, ' ');
-
                     const error_message = try std.fmt.allocPrint(
                         self.allocator,
-                        \\ Function {s} expects {d} arguments, but {d} were given at line {d}, column {d}
+                        \\ {s} function {s} expects {d} arguments, but {d} were given at line {d}, column {d}
                         \\ {s}
                         \\ {s}^ here
                         \\
                     ,
                         .{
+                            try getErrorMarker(self.allocator),
                             fc.function.Identifier.value,
                             func.Function.arg_types.items.len,
                             fc.arguments.items.len,
                             fc.arguments.items[func.Function.arg_types.items.len].getToken().span.line_number,
                             fc.arguments.items[func.Function.arg_types.items.len].getToken().span.start,
                             fc.token.span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(
+                                fc.arguments.items[func.Function.arg_types.items.len].getToken(),
+                                self.allocator,
+                            ),
                         },
                     );
                     try self.errors_list.append(error_message);
@@ -274,15 +283,13 @@ pub const TypeChecker = struct {
                     try self.type_env.types.putNoClobber(&fc.arguments.items[i], passed_type);
 
                     if (!std.meta.eql(p, passed_type)) {
-                        const spaces = try self.allocator.alloc(u8, fc.arguments.items[i].getToken().span.start);
-                        @memset(spaces, ' ');
-
                         const error_message = try std.fmt.allocPrint(self.allocator,
-                            \\ Parameter {d} of function {s} expects type '{any}', but got '{any}' at line {d}, column {d}
+                            \\ {s} parameter {d} of function {s} expects type '{any}', but got '{any}' at line {d}, column {d}
                             \\ {s}
                             \\ {s}^ here
                             \\
                         , .{
+                            try getErrorMarker(self.allocator),
                             i + 1,
                             fc.function.Identifier.value,
                             p,
@@ -290,7 +297,7 @@ pub const TypeChecker = struct {
                             fc.arguments.items[i].getToken().span.line_number,
                             fc.arguments.items[i].getToken().span.start,
                             fc.arguments.items[i].getToken().span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(fc.arguments.items[i].getToken(), self.allocator),
                         });
                         //TODO: need an easy way to retrieve the token from a node to proceed here
                         try self.errors_list.append(error_message);
@@ -317,22 +324,20 @@ pub const TypeChecker = struct {
                 const cond_type = try self.inferAndCheck(iff.condition);
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .Bool) {
-                    const spaces = try self.allocator.alloc(u8, iff.condition.getToken().span.start);
-                    @memset(spaces, ' ');
-
                     const error_message = try std.fmt.allocPrint(
                         self.allocator,
-                        \\ If condition must be a boolean expression, got '{any}' instead at line {d}, columnd {d}
+                        \\ {s} if condition must be a boolean expression, got '{any}' instead at line {d}, columnd {d}
                         \\ {s}
                         \\ {s}^ here
                         \\
                     ,
                         .{
+                            try getErrorMarker(self.allocator),
                             cond_type,
                             iff.condition.getToken().span.line_number,
                             iff.condition.getToken().span.start,
                             iff.condition.getToken().span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(iff.condition.getToken(), self.allocator),
                         },
                     );
                     try self.errors_list.append(error_message);
@@ -343,21 +348,19 @@ pub const TypeChecker = struct {
                 if (iff.alternative) |alt| {
                     const alt_type = try self.inferAndCheck(alt);
                     if (!std.meta.eql(cons_type, alt_type)) {
-                        const spaces = try self.allocator.alloc(u8, iff.getToken().span.start);
-                        @memset(spaces, ' ');
-
                         const error_message = try std.fmt.allocPrint(self.allocator,
-                            \\ Types of an if expression are ambiguous, got '{any}' at then, '{any}' at else at line {d}, column {d}
+                            \\ {s} types of an if expression are ambiguous, got '{any}' at then, '{any}' at else at line {d}, column {d}
                             \\ {s}
                             \\ {s}^ here
                             \\
                         , .{
+                            try getErrorMarker(self.allocator),
                             cons_type,
                             alt_type,
                             iff.getToken().span.line_number,
                             iff.getToken().span.start,
                             iff.getToken().span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(iff.getToken(), self.allocator),
                         });
                         try self.errors_list.append(error_message);
                         return error.TypeViolation;
@@ -371,20 +374,18 @@ pub const TypeChecker = struct {
                     .Negation => switch (exp_type) {
                         .Bool => return exp_type,
                         else => {
-                            const spaces = try self.allocator.alloc(u8, pref.right.getToken().span.start);
-                            @memset(spaces, ' ');
-
                             const error_message = try std.fmt.allocPrint(self.allocator,
-                                \\ Incompatible type '{any}', expected 'bool' at line {d}, column {d}
+                                \\ {s} incompatible type '{any}', expected 'bool' at line {d}, column {d}
                                 \\ {s}
                                 \\ {s}^ here
                                 \\
                             , .{
+                                try getErrorMarker(self.allocator),
                                 exp_type,
                                 pref.right.getToken().span.line_number,
                                 pref.right.getToken().span.start,
                                 pref.getToken().span.source_chunk,
-                                spaces,
+                                try getErrorPointerSpaces(pref.right.getToken(), self.allocator),
                             });
                             try self.errors_list.append(error_message);
                             return error.TypeViolation;
@@ -393,22 +394,20 @@ pub const TypeChecker = struct {
                     .Minus => switch (exp_type) {
                         .Float, .Integer => return exp_type,
                         else => {
-                            const spaces = try self.allocator.alloc(u8, pref.right.getToken().span.start);
-                            @memset(spaces, ' ');
-
                             const error_message = try std.fmt.allocPrint(
                                 self.allocator,
-                                \\ Incompatible type '{any}', expected 'float' or 'int' at line {d}, column {d}
+                                \\ {s} incompatible type '{any}', expected 'float' or 'int' at line {d}, column {d}
                                 \\ {s}
                                 \\ {s}^ here
                                 \\
                             ,
                                 .{
+                                    try getErrorMarker(self.allocator),
                                     exp_type,
                                     pref.right.getToken().span.line_number,
                                     pref.right.getToken().span.start,
                                     pref.getToken().span.source_chunk,
-                                    spaces,
+                                    try getErrorPointerSpaces(pref.right.getToken(), self.allocator),
                                 },
                             );
                             try self.errors_list.append(error_message);
@@ -423,42 +422,38 @@ pub const TypeChecker = struct {
 
                 //infix on functions doesn't make sense
                 if (left_type == .Function or right_type == .Function) {
-                    const spaces = try self.allocator.alloc(u8, infx.getToken().span.start);
-                    @memset(spaces, ' ');
-
                     const error_message = try std.fmt.allocPrint(self.allocator,
-                        \\ Incompatible types '{any}' and '{any}' at line {d}, column {d}
+                        \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
                         \\ {s}
                         \\ {s}^ here
                         \\
                     , .{
+                        try getErrorMarker(self.allocator),
                         left_type,
                         right_type,
                         infx.getToken().span.line_number,
                         infx.getToken().span.start,
                         infx.getToken().span.source_chunk,
-                        spaces,
+                        try getErrorPointerSpaces(infx.getToken(), self.allocator),
                     });
                     try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 // string and void are immediately unsupported in infix at the moment
                 if (left_type == .String or left_type == .Void or right_type == .String or right_type == .Void) {
-                    const spaces = try self.allocator.alloc(u8, infx.getToken().span.start);
-                    @memset(spaces, ' ');
-
                     const error_message = try std.fmt.allocPrint(self.allocator,
-                        \\ Incompatible types '{any}' and '{any}' at line {d}, column {d}
+                        \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
                         \\ {s}
                         \\ {s}^ here
                         \\
                     , .{
+                        try getErrorMarker(self.allocator),
                         left_type,
                         right_type,
                         infx.getToken().span.line_number,
                         infx.getToken().span.start,
                         infx.getToken().span.source_chunk,
-                        spaces,
+                        try getErrorPointerSpaces(infx.getToken(), self.allocator),
                     });
                     try self.errors_list.append(error_message);
                     return error.TypeViolation;
@@ -467,21 +462,19 @@ pub const TypeChecker = struct {
                 switch (infx.operator) {
                     .Plus, .Minus, .Multiply, .Divide => {
                         if (left_type == .Bool or right_type == .Bool) {
-                            const spaces = try self.allocator.alloc(u8, infx.getToken().span.start);
-                            @memset(spaces, ' ');
-
                             const error_message = try std.fmt.allocPrint(self.allocator,
-                                \\ Incompatible types '{any}' and '{any}' at line {d}, column {d}
+                                \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
                                 \\ {s}
                                 \\ {s}^ here
                                 \\
                             , .{
+                                try getErrorMarker(self.allocator),
                                 left_type,
                                 right_type,
                                 infx.getToken().span.line_number,
                                 infx.getToken().span.start,
                                 infx.getToken().span.source_chunk,
-                                spaces,
+                                try getErrorPointerSpaces(infx.getToken(), self.allocator),
                             });
                             try self.errors_list.append(error_message);
                             return error.TypeViolation;
@@ -498,21 +491,19 @@ pub const TypeChecker = struct {
                     },
                     .Greater, .Less, .GreaterEqual, .LessEqual => {
                         if (left_type == .Bool or right_type == .Bool) {
-                            const spaces = try self.allocator.alloc(u8, infx.getToken().span.start);
-                            @memset(spaces, ' ');
-
                             const error_message = try std.fmt.allocPrint(self.allocator,
-                                \\ Incompatible types '{any}' and '{any}' at line {d}, column {d}
+                                \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
                                 \\ {s}
                                 \\ {s}^ here
                                 \\
                             , .{
+                                try getErrorMarker(self.allocator),
                                 left_type,
                                 right_type,
                                 infx.getToken().span.line_number,
                                 infx.getToken().span.start,
                                 infx.getToken().span.source_chunk,
-                                spaces,
+                                try getErrorPointerSpaces(infx.getToken(), self.allocator),
                             });
                             try self.errors_list.append(error_message);
                             return error.TypeViolation;
@@ -526,20 +517,18 @@ pub const TypeChecker = struct {
                 //TODO: catch and report the error value
                 const symbol = self.type_env.resolveSymbol(ident.value) catch |err| {
                     if (err == error.UnboundIdentifier) {
-                        const spaces = try self.allocator.alloc(u8, ident.getToken().span.start);
-                        @memset(spaces, ' ');
-
                         const error_message = try std.fmt.allocPrint(self.allocator,
-                            \\ Unbound identifier '{s}' at line {d}, column {d}
+                            \\ {s} unbound identifier '{s}' at line {d}, column {d}
                             \\ {s}
                             \\ {s}^ here
                             \\
                         , .{
+                            try getErrorMarker(self.allocator),
                             ident.value,
                             ident.getToken().span.line_number,
                             ident.getToken().span.start,
                             ident.getToken().span.source_chunk,
-                            spaces,
+                            try getErrorPointerSpaces(ident.getToken(), self.allocator),
                         });
                         try self.errors_list.append(error_message);
                     }
