@@ -187,7 +187,27 @@ pub const TypeChecker = struct {
                 const ident_type = try self.inferAndCheck(as.name);
                 const expr_type = try self.inferAndCheck(as.expression);
                 if (!std.meta.eql(ident_type, expr_type)) {
-                    try self.errors_list.append("Type of identifier does not equal the type of expression in assignment statement");
+                    const spaces = try self.allocator.alloc(u8, as.token.span.start);
+                    @memset(spaces, ' ');
+
+                    const error_message = try std.fmt.allocPrint(
+                        self.allocator,
+                        \\ Identifier {s} is of type {any}, attempting to assing a value of type {any} at line {d}, column {d}
+                        \\ {s}
+                        \\ {s}^ here
+                        \\
+                    ,
+                        .{
+                            as.name.Identifier.value,
+                            ident_type,
+                            expr_type,
+                            as.name.Identifier.token.span.line_number,
+                            as.name.Identifier.token.span.start,
+                            as.token.span.source_chunk,
+                            spaces,
+                        },
+                    );
+                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 try self.type_env.types.putNoClobber(as.expression, expr_type);
@@ -222,7 +242,27 @@ pub const TypeChecker = struct {
                 var encountered_error = false;
                 const func = try self.inferAndCheck(fc.function);
                 if (func.Function.arg_types.items.len != fc.arguments.items.len) {
-                    try self.errors_list.append("Argument number mismatch");
+                    const spaces = try self.allocator.alloc(u8, fc.token.span.start);
+                    @memset(spaces, ' ');
+
+                    const error_message = try std.fmt.allocPrint(
+                        self.allocator,
+                        \\ Function {s} expects {d} arguments, but {d} were given at line {d}, column {d}
+                        \\ {s}
+                        \\ {s}^ here
+                        \\
+                    ,
+                        .{
+                            fc.function.Identifier.value,
+                            func.Function.arg_types.items.len,
+                            fc.arguments.items.len,
+                            fc.token.span.line_number,
+                            fc.token.span.start,
+                            fc.token.span.source_chunk,
+                            spaces,
+                        },
+                    );
+                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 for (func.Function.arg_types.items, 0..) |p, i| {
@@ -230,6 +270,7 @@ pub const TypeChecker = struct {
                     try self.type_env.types.putNoClobber(&fc.arguments.items[i], passed_type);
 
                     if (!std.meta.eql(p, passed_type)) {
+                        //TODO: need an easy way to retrieve the token from a node to proceed here
                         try self.errors_list.append("Function parameter type mismatch");
                         // not returning to record more error and print a better error message
                         encountered_error = true;
@@ -253,7 +294,25 @@ pub const TypeChecker = struct {
                 const cond_type = try self.inferAndCheck(iff.condition);
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .Bool) {
-                    try self.errors_list.append("Condition expression must be of boolean type");
+                    const spaces = try self.allocator.alloc(u8, iff.token.span.start);
+                    @memset(spaces, ' ');
+
+                    const error_message = try std.fmt.allocPrint(
+                        self.allocator,
+                        \\ If condition must be a boolean expression, got {any} instead at line {d}, columnd {d}
+                        \\ {s}
+                        \\ {s}^ here
+                        \\
+                    ,
+                        .{
+                            cond_type,
+                            iff.token.span.line_number,
+                            iff.token.span.start,
+                            iff.token.span.source_chunk,
+                            spaces,
+                        },
+                    );
+                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
 
