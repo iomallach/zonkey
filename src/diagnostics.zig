@@ -70,6 +70,18 @@ pub const lexer_error_fmt =
     \\ {s} ^here
     \\
 ;
+pub const parser_peek_error_fmt =
+    \\ Expected next token to be {any}, got {any} instead at line {d} column {d}
+    \\ {s}
+    \\ {s}^ here
+    \\
+;
+pub const parser_parselet_error_fmt =
+    \\ Unexpected token {any} encountered at line {d} column {d}
+    \\ {s}
+    \\ {s}^ here
+    \\
+;
 
 pub const Diagnostics = struct {
     errors: std.ArrayList([]const u8),

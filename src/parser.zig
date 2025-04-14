@@ -1,6 +1,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const tok = @import("token.zig");
+const diag = @import("diagnostics.zig");
 
 const prefixParserFn = fn (*Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode;
 const infixParserFn = fn (*Parser, ast.AstNode) error{ OutOfMemory, UnexpectedToken }!ast.AstNode;
@@ -37,19 +38,26 @@ fn precedence(tt: tok.TokenType) Precedence {
 pub const Parser = struct {
     tokens: []tok.Token,
     position: usize,
-    errors_list: std.ArrayList([]const u8),
+
+    diagnostics: *diag.Diagnostics,
 
     alloc: std.mem.Allocator,
 
     prefix_fns: std.AutoHashMap(tok.TokenType, *const prefixParserFn),
     infix_fns: std.AutoHashMap(tok.TokenType, *const infixParserFn),
 
-    pub fn init(tokens: []tok.Token, alloc: std.mem.Allocator) !Parser {
-        const errors_list = std.ArrayList([]const u8).init(alloc);
+    pub fn init(tokens: []tok.Token, diagnostics: *diag.Diagnostics, alloc: std.mem.Allocator) !Parser {
         const prefix_fns = std.AutoHashMap(tok.TokenType, *const prefixParserFn).init(alloc);
         const infix_fns = std.AutoHashMap(tok.TokenType, *const infixParserFn).init(alloc);
 
-        var parser = Parser{ .tokens = tokens, .position = 0, .errors_list = errors_list, .prefix_fns = prefix_fns, .infix_fns = infix_fns, .alloc = alloc };
+        var parser = Parser{
+            .tokens = tokens,
+            .position = 0,
+            .diagnostics = diagnostics,
+            .prefix_fns = prefix_fns,
+            .infix_fns = infix_fns,
+            .alloc = alloc,
+        };
         try parser.registerParsers();
 
         return parser;
@@ -81,12 +89,6 @@ pub const Parser = struct {
         try self.infix_fns.put(tok.TokenType.BANG_EQUAL, Parser.parseInfixExpression);
         try self.infix_fns.put(tok.TokenType.LPAREN, Parser.parseFunctionCall);
         try self.infix_fns.put(tok.TokenType.LBRACKET, Parser.parseIndexExpression);
-    }
-
-    pub fn deinit(self: *Parser) void {
-        self.errors_list.deinit();
-        self.prefix_fns.deinit();
-        self.infix_fns.deinit();
     }
 
     fn hasNext(self: *Parser) bool {
@@ -136,47 +138,31 @@ pub const Parser = struct {
 
     fn peekError(self: *Parser, tt: tok.TokenType) error{OutOfMemory}!void {
         const token = self.peekToken();
-        const spaces = try self.alloc.alloc(u8, token.span.start);
-        @memset(spaces, ' ');
-
-        const error_message = try std.fmt.allocPrint(self.alloc,
-            \\ Expected next token to be {any}, got {any} instead at line {d} column {d}
-            \\ {s}
-            \\ {s}^ here
-            \\
-        , .{
-            tt,
-            token.token_type,
-            token.span.line_number,
-            token.span.start,
-            token.span.source_chunk,
-            spaces,
-        });
-        try self.errors_list.append(error_message);
+        try self.diagnostics.reportError(
+            diag.parser_peek_error_fmt,
+            .{
+                tt,
+                token.token_type,
+                token.span.line_number,
+                token.span.start,
+                token.span.source_chunk,
+                self.diagnostics.getErrorPointerSpaces(token),
+            },
+        );
     }
 
     fn parseletError(self: *Parser) error{OutOfMemory}!void {
         const token = self.currentToken();
-        const spaces = try self.alloc.alloc(u8, token.span.start);
-        @memset(spaces, ' ');
-
-        const error_message = try std.fmt.allocPrint(self.alloc,
-            \\ Unexpected token {any} encountered at line {d} column {d}
-            \\ {s}
-            \\ {s}^ here
-            \\
-        , .{
-            token.token_type,
-            token.span.line_number,
-            token.span.start,
-            token.span.source_chunk,
-            spaces,
-        });
-        try self.errors_list.append(error_message);
-    }
-
-    pub fn errors(self: *Parser) *std.ArrayList([]const u8) {
-        return &self.errors_list;
+        try self.diagnostics.reportError(
+            diag.parser_parselet_error_fmt,
+            .{
+                token.token_type,
+                token.span.line_number,
+                token.span.start,
+                token.span.source_chunk,
+                self.diagnostics.getErrorPointerSpaces(token),
+            },
+        );
     }
 
     pub fn parse(self: *Parser) error{OutOfMemory}!ast.AstNode {

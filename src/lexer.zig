@@ -13,7 +13,6 @@ pub const Lexer = struct {
     cur_line_start: usize,
 
     diagnostics: *diag.Diagnostics,
-    errors_list: std.ArrayList([]const u8),
 
     allocator: std.mem.Allocator,
 
@@ -24,7 +23,6 @@ pub const Lexer = struct {
             .cur_line = 1,
             .cur_line_start = 0,
             .diagnostics = diagnostics,
-            .errors_list = std.ArrayList([]const u8).init(alloc),
             .allocator = alloc,
         };
     }
