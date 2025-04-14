@@ -5,6 +5,7 @@ const tok = @import("token.zig");
 const ast = @import("ast.zig");
 const codegen = @import("codegen.zig");
 const tc = @import("type_inference.zig");
+const Diagnostics = @import("diagnostics.zig").Diagnostics;
 
 // pub fn main() !void {
 //     const stdin = std.io.getStdIn().reader();
@@ -216,6 +217,8 @@ pub fn main() !void {
     const code = try file.readToEndAlloc(allocator, 1024 * 1024 * 10);
     std.debug.print("Code:\n{s}\n", .{code});
 
+    var diagnostics = Diagnostics.init(allocator);
+
     var lex = Lexer.Lexer.init(code, allocator);
     var tokens = try lex_tokens(&lex, allocator);
     const slice_tokens = try tokens.toOwnedSlice();
@@ -238,7 +241,7 @@ pub fn main() !void {
         return error.Badaboom;
     }
 
-    var type_checker = try tc.TypeChecker.init(allocator);
+    var type_checker = try tc.TypeChecker.init(&diagnostics, allocator);
     _ = try type_checker.inferAndCheck(&program);
     if (type_checker.errors_list.items.len > 0) {
         std.debug.print("Errors:\n", .{});
@@ -247,6 +250,7 @@ pub fn main() !void {
         }
         return error.Badaboom;
     }
+    try diagnostics.showAndFail();
 
     var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), &type_checker.type_env, allocator);
     defer compiler.deinit();

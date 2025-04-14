@@ -3,6 +3,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const tok = @import("token.zig");
+const diag = @import("diagnostics.zig");
 
 pub const Symbol = struct {
     name: []const u8,
@@ -35,20 +36,6 @@ const Scope = struct {
         return error.UnboundIdentifier;
     }
 };
-
-//TODO: this should be moved into diagnostics stuff
-const red = "\x1b[31m";
-const reset = "\x1b[0m";
-
-fn getErrorMarker(allocator: std.mem.Allocator) ![]const u8 {
-    return try std.fmt.allocPrint(allocator, "{s}error:{s}", .{ red, reset });
-}
-
-fn getErrorPointerSpaces(token: *const tok.Token, allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
-    const spaces = try allocator.alloc(u8, token.span.start);
-    @memset(spaces, ' ');
-    return spaces;
-}
 
 pub const TypeEnvironment = struct {
     allocator: std.mem.Allocator,
@@ -93,18 +80,19 @@ pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     type_env: TypeEnvironment,
     errors_list: std.ArrayList([]const u8),
+    diagnostics: *diag.Diagnostics,
     current_function: ?*const ast.FunctionLiteral,
 
-    pub fn init(allocator: std.mem.Allocator) error{OutOfMemory}!TypeChecker {
+    pub fn init(diagnostics: *diag.Diagnostics, allocator: std.mem.Allocator) error{OutOfMemory}!TypeChecker {
         return TypeChecker{
             .allocator = allocator,
             .type_env = try TypeEnvironment.init(allocator),
             .errors_list = std.ArrayList([]const u8).init(allocator),
+            .diagnostics = diagnostics,
             .current_function = null,
         };
     }
 
-    //TODO: the handling of error messages still needs to be refactored and preferably moved out, as it is a different concern
     pub fn inferAndCheck(self: *TypeChecker, program: *const ast.AstNode) error{ OutOfMemory, TypeViolation, UnboundIdentifier }!ast.Type {
         switch (program.*) {
             .Program => |prog| {
@@ -123,25 +111,19 @@ pub const TypeChecker = struct {
 
                 if (ls.inferred_type) |it| {
                     if (!std.meta.eql(exp_type, it)) {
-                        const error_message = try std.fmt.allocPrint(
-                            self.allocator,
-                            \\ {s} expected expression to be of type '{any}', defined type was '{any}', but got '{any}' instead at line {d}, column {d}
-                            \\ {s}
-                            \\ {s}^ here
-                            \\
-                        ,
+                        try self.diagnostics.reportError(
+                            diag.let_statement_error_fmt,
                             .{
-                                try getErrorMarker(self.allocator),
+                                try self.diagnostics.getErrorMarker(),
                                 ls.inferred_type.?,
                                 ls.inferred_type.?,
                                 exp_type,
                                 ls.expression.getToken().span.line_number,
                                 ls.expression.getToken().span.start,
                                 ls.expression.getToken().span.source_chunk,
-                                try getErrorPointerSpaces(ls.expression.getToken(), self.allocator),
+                                try self.diagnostics.getErrorPointerSpaces(ls.expression.getToken()),
                             },
                         );
-                        try self.errors_list.append(error_message);
                         return error.TypeViolation;
                     }
                 }
@@ -153,24 +135,18 @@ pub const TypeChecker = struct {
             .ReturnStatement => |r| {
                 const ret_type = try self.inferAndCheck(r.return_value);
                 if (!std.meta.eql(self.current_function.?.return_type, ret_type)) {
-                    const error_message = try std.fmt.allocPrint(
-                        self.allocator,
-                        \\ {s} the type of the return statement does not match the declared return function type: expected '{any}', got '{any}' at line {d}, column {d}
-                        \\ {s}
-                        \\ {s}^ here
-                        \\
-                    ,
+                    try self.diagnostics.reportError(
+                        diag.return_statement_error_fmt,
                         .{
-                            try getErrorMarker(self.allocator),
+                            try self.diagnostics.getErrorMarker(),
                             self.current_function.?.return_type,
                             ret_type,
                             r.return_value.getToken().span.line_number,
                             r.return_value.getToken().span.start,
                             r.return_value.getToken().span.source_chunk,
-                            try getErrorPointerSpaces(r.return_value.getToken(), self.allocator),
+                            try self.diagnostics.getErrorPointerSpaces(r.return_value.getToken()),
                         },
                     );
-                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 try self.type_env.types.putNoClobber(r.return_value, ret_type);
@@ -200,25 +176,19 @@ pub const TypeChecker = struct {
                 const ident_type = try self.inferAndCheck(as.name);
                 const expr_type = try self.inferAndCheck(as.expression);
                 if (!std.meta.eql(ident_type, expr_type)) {
-                    const error_message = try std.fmt.allocPrint(
-                        self.allocator,
-                        \\ {s} identifier {s} is of type '{any}', attempting to assign a value of type '{any}' at line {d}, column {d}
-                        \\ {s}
-                        \\ {s}^ here
-                        \\
-                    ,
+                    try self.diagnostics.reportError(
+                        diag.assignment_statement_error_fmt,
                         .{
-                            try getErrorMarker(self.allocator),
+                            try self.diagnostics.getErrorMarker(),
                             as.name.Identifier.value,
                             ident_type,
                             expr_type,
                             as.expression.getToken().span.line_number,
                             as.expression.getToken().span.start,
                             as.expression.getToken().span.source_chunk,
-                            try getErrorPointerSpaces(as.expression.getToken(), self.allocator),
+                            try self.diagnostics.getErrorPointerSpaces(as.expression.getToken()),
                         },
                     );
-                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 try self.type_env.types.putNoClobber(as.expression, expr_type);
@@ -254,28 +224,21 @@ pub const TypeChecker = struct {
                 const func = try self.inferAndCheck(fc.function);
                 //FIXME: broken for less arguments (panic)
                 if (func.Function.arg_types.items.len != fc.arguments.items.len) {
-                    const error_message = try std.fmt.allocPrint(
-                        self.allocator,
-                        \\ {s} function {s} expects {d} arguments, but {d} were given at line {d}, column {d}
-                        \\ {s}
-                        \\ {s}^ here
-                        \\
-                    ,
+                    try self.diagnostics.reportError(
+                        diag.function_call_error_fmt,
                         .{
-                            try getErrorMarker(self.allocator),
+                            try self.diagnostics.getErrorMarker(),
                             fc.function.Identifier.value,
                             func.Function.arg_types.items.len,
                             fc.arguments.items.len,
                             fc.arguments.items[func.Function.arg_types.items.len].getToken().span.line_number,
                             fc.arguments.items[func.Function.arg_types.items.len].getToken().span.start,
                             fc.token.span.source_chunk,
-                            try getErrorPointerSpaces(
+                            try self.diagnostics.getErrorPointerSpaces(
                                 fc.arguments.items[func.Function.arg_types.items.len].getToken(),
-                                self.allocator,
                             ),
                         },
                     );
-                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
                 for (func.Function.arg_types.items, 0..) |p, i| {
@@ -283,24 +246,20 @@ pub const TypeChecker = struct {
                     try self.type_env.types.putNoClobber(&fc.arguments.items[i], passed_type);
 
                     if (!std.meta.eql(p, passed_type)) {
-                        const error_message = try std.fmt.allocPrint(self.allocator,
-                            \\ {s} parameter {d} of function {s} expects type '{any}', but got '{any}' at line {d}, column {d}
-                            \\ {s}
-                            \\ {s}^ here
-                            \\
-                        , .{
-                            try getErrorMarker(self.allocator),
-                            i + 1,
-                            fc.function.Identifier.value,
-                            p,
-                            passed_type,
-                            fc.arguments.items[i].getToken().span.line_number,
-                            fc.arguments.items[i].getToken().span.start,
-                            fc.arguments.items[i].getToken().span.source_chunk,
-                            try getErrorPointerSpaces(fc.arguments.items[i].getToken(), self.allocator),
-                        });
-                        //TODO: need an easy way to retrieve the token from a node to proceed here
-                        try self.errors_list.append(error_message);
+                        try self.diagnostics.reportError(
+                            diag.function_call_param_error_fmt,
+                            .{
+                                try self.diagnostics.getErrorMarker(),
+                                i + 1,
+                                fc.function.Identifier.value,
+                                p,
+                                passed_type,
+                                fc.arguments.items[i].getToken().span.line_number,
+                                fc.arguments.items[i].getToken().span.start,
+                                fc.arguments.items[i].getToken().span.source_chunk,
+                                try self.diagnostics.getErrorPointerSpaces(fc.arguments.items[i].getToken()),
+                            },
+                        );
                         // not returning to record more error and print a better error message
                         encountered_error = true;
                     }
@@ -324,23 +283,17 @@ pub const TypeChecker = struct {
                 const cond_type = try self.inferAndCheck(iff.condition);
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .Bool) {
-                    const error_message = try std.fmt.allocPrint(
-                        self.allocator,
-                        \\ {s} if condition must be a boolean expression, got '{any}' instead at line {d}, columnd {d}
-                        \\ {s}
-                        \\ {s}^ here
-                        \\
-                    ,
+                    try self.diagnostics.reportError(
+                        diag.if_expression_cond_error_fmt,
                         .{
-                            try getErrorMarker(self.allocator),
+                            try self.diagnostics.getErrorMarker(),
                             cond_type,
                             iff.condition.getToken().span.line_number,
                             iff.condition.getToken().span.start,
                             iff.condition.getToken().span.source_chunk,
-                            try getErrorPointerSpaces(iff.condition.getToken(), self.allocator),
+                            try self.diagnostics.getErrorPointerSpaces(iff.condition.getToken()),
                         },
                     );
-                    try self.errors_list.append(error_message);
                     return error.TypeViolation;
                 }
 
@@ -348,21 +301,18 @@ pub const TypeChecker = struct {
                 if (iff.alternative) |alt| {
                     const alt_type = try self.inferAndCheck(alt);
                     if (!std.meta.eql(cons_type, alt_type)) {
-                        const error_message = try std.fmt.allocPrint(self.allocator,
-                            \\ {s} types of an if expression are ambiguous, got '{any}' at then, '{any}' at else at line {d}, column {d}
-                            \\ {s}
-                            \\ {s}^ here
-                            \\
-                        , .{
-                            try getErrorMarker(self.allocator),
-                            cons_type,
-                            alt_type,
-                            iff.getToken().span.line_number,
-                            iff.getToken().span.start,
-                            iff.getToken().span.source_chunk,
-                            try getErrorPointerSpaces(iff.getToken(), self.allocator),
-                        });
-                        try self.errors_list.append(error_message);
+                        try self.diagnostics.reportError(
+                            diag.if_expression_type_error_fmt,
+                            .{
+                                try self.diagnostics.getErrorMarker(),
+                                cons_type,
+                                alt_type,
+                                iff.getToken().span.line_number,
+                                iff.getToken().span.start,
+                                iff.getToken().span.source_chunk,
+                                try self.diagnostics.getErrorPointerSpaces(iff.getToken()),
+                            },
+                        );
                         return error.TypeViolation;
                     }
                 }
@@ -374,43 +324,36 @@ pub const TypeChecker = struct {
                     .Negation => switch (exp_type) {
                         .Bool => return exp_type,
                         else => {
-                            const error_message = try std.fmt.allocPrint(self.allocator,
-                                \\ {s} incompatible type '{any}', expected 'bool' at line {d}, column {d}
-                                \\ {s}
-                                \\ {s}^ here
-                                \\
-                            , .{
-                                try getErrorMarker(self.allocator),
-                                exp_type,
-                                pref.right.getToken().span.line_number,
-                                pref.right.getToken().span.start,
-                                pref.getToken().span.source_chunk,
-                                try getErrorPointerSpaces(pref.right.getToken(), self.allocator),
-                            });
-                            try self.errors_list.append(error_message);
+                            try self.diagnostics.reportError(
+                                diag.prefix_expression_type_error_fmt,
+                                .{
+                                    try self.diagnostics.getErrorMarker(),
+                                    "bool",
+                                    exp_type,
+                                    pref.right.getToken().span.line_number,
+                                    pref.right.getToken().span.start,
+                                    pref.getToken().span.source_chunk,
+                                    try self.diagnostics.getErrorPointerSpaces(pref.right.getToken()),
+                                },
+                            );
                             return error.TypeViolation;
                         },
                     },
                     .Minus => switch (exp_type) {
                         .Float, .Integer => return exp_type,
                         else => {
-                            const error_message = try std.fmt.allocPrint(
-                                self.allocator,
-                                \\ {s} incompatible type '{any}', expected 'float' or 'int' at line {d}, column {d}
-                                \\ {s}
-                                \\ {s}^ here
-                                \\
-                            ,
+                            try self.diagnostics.reportError(
+                                diag.prefix_expression_type_error_fmt,
                                 .{
-                                    try getErrorMarker(self.allocator),
+                                    try self.diagnostics.getErrorMarker(),
+                                    "float",
                                     exp_type,
                                     pref.right.getToken().span.line_number,
                                     pref.right.getToken().span.start,
                                     pref.getToken().span.source_chunk,
-                                    try getErrorPointerSpaces(pref.right.getToken(), self.allocator),
+                                    try self.diagnostics.getErrorPointerSpaces(pref.right.getToken()),
                                 },
                             );
-                            try self.errors_list.append(error_message);
                             return error.TypeViolation;
                         },
                     },
@@ -422,61 +365,52 @@ pub const TypeChecker = struct {
 
                 //infix on functions doesn't make sense
                 if (left_type == .Function or right_type == .Function) {
-                    const error_message = try std.fmt.allocPrint(self.allocator,
-                        \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
-                        \\ {s}
-                        \\ {s}^ here
-                        \\
-                    , .{
-                        try getErrorMarker(self.allocator),
-                        left_type,
-                        right_type,
-                        infx.getToken().span.line_number,
-                        infx.getToken().span.start,
-                        infx.getToken().span.source_chunk,
-                        try getErrorPointerSpaces(infx.getToken(), self.allocator),
-                    });
-                    try self.errors_list.append(error_message);
+                    try self.diagnostics.reportError(
+                        diag.infix_expression_type_eror_fmt,
+                        .{
+                            try self.diagnostics.getErrorMarker(),
+                            left_type,
+                            right_type,
+                            infx.getToken().span.line_number,
+                            infx.getToken().span.start,
+                            infx.getToken().span.source_chunk,
+                            try self.diagnostics.getErrorPointerSpaces(infx.getToken()),
+                        },
+                    );
                     return error.TypeViolation;
                 }
                 // string and void are immediately unsupported in infix at the moment
                 if (left_type == .String or left_type == .Void or right_type == .String or right_type == .Void) {
-                    const error_message = try std.fmt.allocPrint(self.allocator,
-                        \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
-                        \\ {s}
-                        \\ {s}^ here
-                        \\
-                    , .{
-                        try getErrorMarker(self.allocator),
-                        left_type,
-                        right_type,
-                        infx.getToken().span.line_number,
-                        infx.getToken().span.start,
-                        infx.getToken().span.source_chunk,
-                        try getErrorPointerSpaces(infx.getToken(), self.allocator),
-                    });
-                    try self.errors_list.append(error_message);
+                    try self.diagnostics.reportError(
+                        diag.infix_expression_type_eror_fmt,
+                        .{
+                            try self.diagnostics.getErrorMarker(),
+                            left_type,
+                            right_type,
+                            infx.getToken().span.line_number,
+                            infx.getToken().span.start,
+                            infx.getToken().span.source_chunk,
+                            try self.diagnostics.getErrorPointerSpaces(infx.getToken()),
+                        },
+                    );
                     return error.TypeViolation;
                 }
 
                 switch (infx.operator) {
                     .Plus, .Minus, .Multiply, .Divide => {
                         if (left_type == .Bool or right_type == .Bool) {
-                            const error_message = try std.fmt.allocPrint(self.allocator,
-                                \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
-                                \\ {s}
-                                \\ {s}^ here
-                                \\
-                            , .{
-                                try getErrorMarker(self.allocator),
-                                left_type,
-                                right_type,
-                                infx.getToken().span.line_number,
-                                infx.getToken().span.start,
-                                infx.getToken().span.source_chunk,
-                                try getErrorPointerSpaces(infx.getToken(), self.allocator),
-                            });
-                            try self.errors_list.append(error_message);
+                            try self.diagnostics.reportError(
+                                diag.infix_expression_type_eror_fmt,
+                                .{
+                                    try self.diagnostics.getErrorMarker(),
+                                    left_type,
+                                    right_type,
+                                    infx.getToken().span.line_number,
+                                    infx.getToken().span.start,
+                                    infx.getToken().span.source_chunk,
+                                    try self.diagnostics.getErrorPointerSpaces(infx.getToken()),
+                                },
+                            );
                             return error.TypeViolation;
                         }
                         if (left_type == .Float or right_type == .Float) {
@@ -491,21 +425,18 @@ pub const TypeChecker = struct {
                     },
                     .Greater, .Less, .GreaterEqual, .LessEqual => {
                         if (left_type == .Bool or right_type == .Bool) {
-                            const error_message = try std.fmt.allocPrint(self.allocator,
-                                \\ {s} incompatible types '{any}' and '{any}' at line {d}, column {d}
-                                \\ {s}
-                                \\ {s}^ here
-                                \\
-                            , .{
-                                try getErrorMarker(self.allocator),
-                                left_type,
-                                right_type,
-                                infx.getToken().span.line_number,
-                                infx.getToken().span.start,
-                                infx.getToken().span.source_chunk,
-                                try getErrorPointerSpaces(infx.getToken(), self.allocator),
-                            });
-                            try self.errors_list.append(error_message);
+                            try self.diagnostics.reportError(
+                                diag.infix_expression_type_eror_fmt,
+                                .{
+                                    try self.diagnostics.getErrorMarker(),
+                                    left_type,
+                                    right_type,
+                                    infx.getToken().span.line_number,
+                                    infx.getToken().span.start,
+                                    infx.getToken().span.source_chunk,
+                                    try self.diagnostics.getErrorPointerSpaces(infx.getToken()),
+                                },
+                            );
                             return error.TypeViolation;
                         }
                         return ast.Type.Bool;
@@ -514,23 +445,19 @@ pub const TypeChecker = struct {
             },
             .Index => unreachable, //TODO: implement
             .Identifier => |ident| {
-                //TODO: catch and report the error value
                 const symbol = self.type_env.resolveSymbol(ident.value) catch |err| {
                     if (err == error.UnboundIdentifier) {
-                        const error_message = try std.fmt.allocPrint(self.allocator,
-                            \\ {s} unbound identifier '{s}' at line {d}, column {d}
-                            \\ {s}
-                            \\ {s}^ here
-                            \\
-                        , .{
-                            try getErrorMarker(self.allocator),
-                            ident.value,
-                            ident.getToken().span.line_number,
-                            ident.getToken().span.start,
-                            ident.getToken().span.source_chunk,
-                            try getErrorPointerSpaces(ident.getToken(), self.allocator),
-                        });
-                        try self.errors_list.append(error_message);
+                        try self.diagnostics.reportError(
+                            diag.unbound_identifier_error_fmt,
+                            .{
+                                try self.diagnostics.getErrorMarker(),
+                                ident.value,
+                                ident.getToken().span.line_number,
+                                ident.getToken().span.start,
+                                ident.getToken().span.source_chunk,
+                                try self.diagnostics.getErrorPointerSpaces(ident.getToken()),
+                            },
+                        );
                     }
                     return err;
                 };
