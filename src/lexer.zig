@@ -1,5 +1,6 @@
 const tok = @import("token.zig");
 const std = @import("std");
+const diag = @import("diagnostics.zig");
 const allocator = std.mem.Allocator;
 
 const LiteralAndSpan = struct { literal: []const u8, span: tok.TokenSpan };
@@ -11,27 +12,21 @@ pub const Lexer = struct {
     cur_line: usize,
     cur_line_start: usize,
 
+    diagnostics: *diag.Diagnostics,
     errors_list: std.ArrayList([]const u8),
 
     allocator: std.mem.Allocator,
 
-    pub fn init(chars: []const u8, alloc: std.mem.Allocator) Lexer {
+    pub fn init(chars: []const u8, diagnostics: *diag.Diagnostics, alloc: std.mem.Allocator) Lexer {
         return .{
             .chars = chars,
             .position = 0,
             .cur_line = 1,
             .cur_line_start = 0,
+            .diagnostics = diagnostics,
             .errors_list = std.ArrayList([]const u8).init(alloc),
             .allocator = alloc,
         };
-    }
-
-    pub fn deinit(self: *Lexer) void {
-        self.errors_list.deinit();
-    }
-
-    pub fn errors(self: *Lexer) std.ArrayList[[]const u8] {
-        return self.errors_list;
     }
 
     fn advance(self: *Lexer) void {
@@ -39,23 +34,17 @@ pub const Lexer = struct {
     }
 
     fn report_error(self: *Lexer, got: u8, expected: u8, token: *tok.Token) !void {
-        const spaces = try self.allocator.alloc(u8, token.span.start);
-        @memset(spaces, ' ');
-
-        const error_message = try std.fmt.allocPrint(self.allocator,
-            \\ Expected next char to be {c}, got {c} instead at line {d}, column {d}
-            \\ {s}
-            \\ {s} ^here
-            \\
-        , .{
-            expected,
-            got,
-            token.span.line_number,
-            token.span.start,
-            token.span.source_chunk,
-            spaces,
-        });
-        try self.errors_list.append(error_message);
+        try self.diagnostics.reportError(
+            diag.lexer_error_fmt,
+            .{
+                expected,
+                got,
+                token.span.line_number,
+                token.span.start,
+                token.span.source_chunk,
+                self.diagnostics.getErrorPointerSpaces(token),
+            },
+        );
     }
 
     fn char(self: *Lexer) u8 {

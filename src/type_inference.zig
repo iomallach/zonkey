@@ -79,7 +79,6 @@ pub const TypeEnvironment = struct {
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     type_env: TypeEnvironment,
-    errors_list: std.ArrayList([]const u8),
     diagnostics: *diag.Diagnostics,
     current_function: ?*const ast.FunctionLiteral,
 
@@ -87,7 +86,6 @@ pub const TypeChecker = struct {
         return TypeChecker{
             .allocator = allocator,
             .type_env = try TypeEnvironment.init(allocator),
-            .errors_list = std.ArrayList([]const u8).init(allocator),
             .diagnostics = diagnostics,
             .current_function = null,
         };
