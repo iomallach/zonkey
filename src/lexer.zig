@@ -40,7 +40,7 @@ pub const Lexer = struct {
                 token.span.line_number,
                 token.span.start,
                 token.span.source_chunk,
-                self.diagnostics.getErrorPointerSpaces(token),
+                try self.diagnostics.getErrorPointerSpaces(token),
             },
         );
     }
@@ -289,8 +289,8 @@ test "Test find_end_of_line" {
     const input = "text\ntext\n";
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
-    var lex = Lexer.init(input, alloc);
-    defer lex.deinit();
+    var diagnostics = diag.Diagnostics.init(alloc);
+    var lex = Lexer.init(input, &diagnostics, alloc);
 
     const eol = lex.find_end_of_line();
 

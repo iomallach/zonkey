@@ -146,7 +146,7 @@ pub const Parser = struct {
                 token.span.line_number,
                 token.span.start,
                 token.span.source_chunk,
-                self.diagnostics.getErrorPointerSpaces(token),
+                try self.diagnostics.getErrorPointerSpaces(&token),
             },
         );
     }
@@ -160,7 +160,7 @@ pub const Parser = struct {
                 token.span.line_number,
                 token.span.start,
                 token.span.source_chunk,
-                self.diagnostics.getErrorPointerSpaces(token),
+                try self.diagnostics.getErrorPointerSpaces(&token),
             },
         );
     }
@@ -764,16 +764,6 @@ const TestHelpers = struct {
         }
     }
 
-    pub fn test_parse_errors(parser: *Parser) !void {
-        if (parser.errors().*.items.len > 0) {
-            std.debug.print("Errors:\n", .{});
-            for (parser.errors().*.items, 1..) |e, i| {
-                std.debug.print("  {d}: {s}\n", .{ i, e });
-            }
-            return error.ParserHadErrors;
-        }
-    }
-
     pub fn test_literal_expression(expression: *const ast.AstNode, expected: anytype) !void {
         switch (@TypeOf(expected)) {
             i64, comptime_int => return TestHelpers.test_integer_literal(expression, @as(i64, expected)),
@@ -870,14 +860,15 @@ test "Test parse let statement" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
 
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
 
         try std.testing.expectEqual(1, program.Program.program.items.len);
         try TestHelpers.test_let_statement(&program.Program.program.items[0], test_case.expected_identifier);
@@ -898,13 +889,14 @@ test "Test parse identifier" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -919,13 +911,14 @@ test "Test parse string literals" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -951,13 +944,14 @@ test "Parse numeric expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
         try std.testing.expectEqual(1, program.Program.program.items.len);
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -989,13 +983,14 @@ test "Parse prefix expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression.Prefix;
         try std.testing.expectEqualStrings(expression.operator.toString(), test_case.operator.toString());
@@ -1020,13 +1015,14 @@ test "Parse boolean expression" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
         try TestHelpers.test_literal_expression(expression, test_case.value);
@@ -1067,13 +1063,14 @@ test "Parse infix expression" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
         try std.testing.expectEqual(1, program.Program.program.items.len);
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression.Infix;
@@ -1095,13 +1092,14 @@ test "Parse if expressions" {
     const left_exp: []const u8 = "x";
     const right_exp: []const u8 = "y";
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const expression = program.Program.program.items[0].ExpressionStatement.expression.If;
@@ -1123,13 +1121,14 @@ test "Parse function literal" {
     const right_exp: []const u8 = "y";
     const fn_name: []const u8 = "foo";
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const function_literal = program.Program.program.items[0].FunctionLiteral;
@@ -1163,14 +1162,15 @@ test "Parse function parameters" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
 
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
         try std.testing.expectEqual(1, program.Program.program.items.len);
 
         const function_literal = program.Program.program.items[0].LetStatement.expression.FunctionLiteral;
@@ -1189,13 +1189,14 @@ test "Parse array literals" {
 
     const input = "[1, 2 * 2, 3 + 3]";
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const array_literal = &program.Program.program.items[0].ExpressionStatement.expression.ArrayLiteral;
@@ -1210,13 +1211,14 @@ test "Parse function call" {
 
     const input = "add(1, 2 * 3, 4 + 5)";
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const function_call = &program.Program.program.items[0].ExpressionStatement.expression.FunctionCall;
@@ -1235,13 +1237,14 @@ test "Parse index expression" {
 
     const input = "myArray[1 + 1]";
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
     try std.testing.expectEqual(1, program.Program.program.items.len);
 
     const index_expression = &program.Program.program.items[0].ExpressionStatement.expression.Index;
@@ -1271,13 +1274,14 @@ test "Parse return statement" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
         try std.testing.expectEqual(1, program.Program.program.items.len);
         switch (test_case.expected_value) {
             inline else => |v| try TestHelpers.test_literal_expression(program.Program.program.items[0].ReturnStatement.return_value, v),
@@ -1302,13 +1306,14 @@ test "Parse while loop statement" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
 
         try std.testing.expectEqual(1, program.Program.program.items.len);
         const statement = program.Program.program.items[0].WhileLoopStatement;
@@ -1357,14 +1362,15 @@ test "Parse assigment statement" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var lexer = lex.Lexer.init(test_case.input, allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var lexer = lex.Lexer.init(test_case.input, &diagnostics, allocator);
         var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
         const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-        var parser = try Parser.init(slice_tokens, allocator);
+        var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
 
         const program = try parser.parse();
-        try TestHelpers.test_parse_errors(&parser);
+        try diagnostics.showAndFail();
 
         try std.testing.expectEqual(1, program.Program.program.items.len);
         try TestHelpers.test_identifier(program.Program.program.items[0].AssignmentStatement.name, test_case.expected_identifier);
@@ -1384,14 +1390,15 @@ test "Parse call print builtin" {
 
     const input = "print(3 + 4);";
 
-    var lexer = lex.Lexer.init(input, allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
     var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
     const slice_tokens = try lexed_tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
 
     const program = try parser.parse();
-    try TestHelpers.test_parse_errors(&parser);
+    try diagnostics.showAndFail();
 
     try std.testing.expectEqual(1, program.Program.program.items.len);
     const infix = &program.Program.program.items[0].BuiltInCall.argument.Infix;

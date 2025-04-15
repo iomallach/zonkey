@@ -480,21 +480,11 @@ pub const TypeChecker = struct {
     }
 };
 
-pub fn test_errors(errors: *std.ArrayList([]const u8)) !void {
-    if (errors.*.items.len > 0) {
-        std.debug.print("Errors:\n", .{});
-        for (errors.*.items, 1..) |e, i| {
-            std.debug.print("  {d}: {s}\n", .{ i, e });
-        }
-        return error.ParserHadErrors;
-    }
-}
-
-fn parse_program(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
+fn parse_program(input: []const u8, diagnostics: *diag.Diagnostics, allocator: std.mem.Allocator) !ast.AstNode {
     const Lexer = @import("lexer.zig").Lexer;
     const Parser = @import("parser.zig").Parser;
 
-    var lexer = Lexer.init(input, allocator);
+    var lexer = Lexer.init(input, diagnostics, allocator);
 
     var lexed_tokens = std.ArrayList(tok.Token).init(allocator);
     while (true) {
@@ -506,9 +496,8 @@ fn parse_program(input: []const u8, allocator: std.mem.Allocator) !ast.AstNode {
     }
 
     const slice_tokens = try lexed_tokens.toOwnedSlice();
-    var parser = try Parser.init(slice_tokens, allocator);
+    var parser = try Parser.init(slice_tokens, diagnostics, allocator);
     const program = try parser.parse();
-    try test_errors(parser.errors());
 
     return program;
 }
@@ -555,11 +544,12 @@ test "Infer simple expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+        try diagnostics.showAndFail();
 
-        try test_errors(&checker.errors_list);
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
         try std.testing.expectEqual(test_case.expected, checker.type_env.types.get(expression));
     }
@@ -585,11 +575,12 @@ test "Infer let statements" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+        try diagnostics.showAndFail();
 
-        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("a")).typ);
     }
 }
@@ -614,12 +605,13 @@ test "Infer nested expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+        try diagnostics.showAndFail();
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
-        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, checker.type_env.types.get(expression));
     }
 }
@@ -664,11 +656,12 @@ test "Infer if expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+        try diagnostics.showAndFail();
 
-        try test_errors(&checker.errors_list);
         const if_expression = program.Program.program.items[test_case.statement_num].ExpressionStatement.expression;
         try std.testing.expectEqual(test_case.expected_cond_type, checker.type_env.types.get(if_expression.If.condition));
         try std.testing.expectEqual(test_case.expected_expr_type, checker.type_env.types.get(if_expression));
@@ -715,11 +708,11 @@ test "Infer function declaration" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
 
-        try test_errors(&checker.errors_list);
         const function_decl = &program.Program.program.items[0];
         const symbol = checker.type_env.defs.get(function_decl).?;
         try std.testing.expectEqual(test_case.expected_ret_type, symbol.typ.Function.return_type);
@@ -746,11 +739,10 @@ test "Infer function call" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
-
-        try test_errors(&checker.errors_list);
 
         const call_expr = program.Program.program.items[1].ExpressionStatement.expression;
         const typ = checker.type_env.types.get(call_expr).?;
@@ -783,11 +775,11 @@ test "Infer mixed expressions" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
 
-        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("foo")).typ);
     }
 }
@@ -825,11 +817,11 @@ test "Infer assignment statements" {
     const allocator = arena.allocator();
 
     for (tests) |test_case| {
-        var program = try parse_program(test_case.input, allocator);
-        var checker = try TypeChecker.init(allocator);
+        var diagnostics = diag.Diagnostics.init(allocator);
+        var program = try parse_program(test_case.input, &diagnostics, allocator);
+        var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
 
-        try test_errors(&checker.errors_list);
         try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("a")).typ);
         const assign_ident = program.Program.program.items[1].AssignmentStatement.name;
         try std.testing.expectEqual(test_case.expected, checker.type_env.uses.get(assign_ident).?.typ);
@@ -843,11 +835,11 @@ test "Infer builtin print call" {
 
     const input = "print(3 + 4);";
 
-    var program = try parse_program(input, allocator);
-    var checker = try TypeChecker.init(allocator);
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var program = try parse_program(input, &diagnostics, allocator);
+    var checker = try TypeChecker.init(&diagnostics, allocator);
     _ = try checker.inferAndCheck(&program);
 
-    try test_errors(&checker.errors_list);
     try std.testing.expectEqual(
         ast.Type.Integer,
         checker.type_env.types.get(program.Program.program.items[0].BuiltInCall.argument).?,
