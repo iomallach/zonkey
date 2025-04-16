@@ -15,6 +15,11 @@ const ast = @import("ast.zig");
 const ti = @import("type_inference.zig");
 const std = @import("std");
 
+const BuiltInFunction = struct {
+    function: c.LLVMValueRef,
+    function_type: c.LLVMTypeRef,
+};
+
 const Symbol = struct {
     name: [:0]const u8,
     type_annotation: ast.Type,
@@ -70,6 +75,7 @@ pub const Compiler = struct {
     builder: c.LLVMBuilderRef,
     symbol_table: SymbolTable,
     current_function: c.LLVMValueRef,
+    builtin_functions: std.StringHashMap(BuiltInFunction),
 
     allocator: std.mem.Allocator,
     type_env: *ti.TypeEnvironment,
@@ -82,6 +88,7 @@ pub const Compiler = struct {
             .builder = c.LLVMCreateBuilderInContext(context),
             .symbol_table = try SymbolTable.init(allocator),
             .current_function = null,
+            .builtin_functions = std.StringHashMap(BuiltInFunction).init(allocator),
             .allocator = allocator,
             .type_env = type_env,
         };
@@ -93,7 +100,28 @@ pub const Compiler = struct {
         c.LLVMContextDispose(self.context);
     }
 
+    fn declareBuiltInPrint(self: *Compiler) !void {
+        const param_types = [_]c.LLVMTypeRef{c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0)};
+        const typ = c.LLVMFunctionType(
+            c.LLVMInt32TypeInContext(self.context),
+            @as([*c]c.LLVMTypeRef, @ptrCast(@constCast(&param_types))),
+            1,
+            1,
+        );
+        const print_func = c.LLVMAddFunction(self.module, "printf", typ);
+        c.LLVMSetFunctionCallConv(print_func, c.LLVMCCallConv);
+        try self.builtin_functions.putNoClobber(
+            "print",
+            BuiltInFunction{
+                .function = print_func,
+                .function_type = typ,
+            },
+        );
+    }
+
     pub fn run(self: *Compiler, program: *const ast.AstNode) !void {
+        try self.declareBuiltInPrint();
+
         const main_type = c.LLVMFunctionType(c.LLVMInt32TypeInContext(self.context), null, 0, 0);
         const main_fn = c.LLVMAddFunction(self.module, "main", main_type);
         self.current_function = main_fn;
@@ -113,6 +141,8 @@ pub const Compiler = struct {
 
         self.analyzeModule();
         self.writeIRToFile();
+
+        c.LLVMShutdown();
     }
 
     fn codegen(self: *Compiler, node: *const ast.AstNode) anyerror!c.LLVMValueRef {
@@ -350,6 +380,41 @@ pub const Compiler = struct {
                 c.LLVMPositionBuilderAtEnd(self.builder, exit_block);
                 return null;
             },
+            .BuiltInCall => |bic| {
+                const compiled_arg = try self.codegen(bic.argument);
+                const compiled_arg_type = self.type_env.types.get(bic.argument).?;
+                //TODO: assuming only print here now
+                const function = self.builtin_functions.get(bic.function.Identifier.value).?;
+
+                switch (compiled_arg_type) {
+                    .Integer => {
+                        const str = c.LLVMBuildGlobalStringPtr(self.builder, "%d\n", "format_int");
+                        const args = [_]c.LLVMValueRef{ str, compiled_arg };
+                        _ = c.LLVMBuildCall2(
+                            self.builder,
+                            function.function_type,
+                            function.function,
+                            @as([*c]c.LLVMValueRef, @ptrCast(@constCast(&args))),
+                            2,
+                            "call_print_builtin",
+                        );
+                    },
+                    .Float => {
+                        const str = c.LLVMBuildGlobalStringPtr(self.builder, "%f\n", "format_float");
+                        const args = [_]c.LLVMValueRef{ str, compiled_arg };
+                        _ = c.LLVMBuildCall2(
+                            self.builder,
+                            function.function_type,
+                            function.function,
+                            @as([*c]c.LLVMValueRef, @ptrCast(@constCast(&args))),
+                            2,
+                            "call_print_builtin",
+                        );
+                    },
+                    else => unreachable,
+                }
+                return null;
+            },
             else => unreachable,
         }
     }
@@ -445,13 +510,53 @@ pub const Compiler = struct {
         }
     }
 
+    fn exitOnError(self: *Compiler, hint: []const u8, err_msg: [*c]u8) void {
+        _ = self;
+        if (err_msg) |m| {
+            std.debug.print("{s}: {s}\n", .{ hint, m });
+            std.process.exit(1);
+        }
+    }
+
     fn writeIRToFile(self: *Compiler) void {
+        _ = c.LLVMInitializeNativeTarget();
+        _ = c.LLVMInitializeNativeAsmPrinter();
+        _ = c.LLVMInitializeNativeAsmParser();
+
+        const triple: [*c]u8 = c.LLVMGetDefaultTargetTriple();
+        defer c.LLVMDisposeMessage(triple);
+        c.LLVMSetTarget(self.module, triple);
+
         var err_msg: [*c]u8 = null;
         defer c.LLVMDisposeMessage(err_msg);
+
         _ = c.LLVMPrintModuleToFile(self.module, "module.ll", &err_msg);
-        if (err_msg) |m| {
-            std.debug.print("{s}", .{m});
-        }
+        self.exitOnError("Failed printing .ll file", err_msg);
+
+        var target: c.LLVMTargetRef = null;
+        err_msg = null;
+        _ = c.LLVMGetTargetFromTriple(triple, &target, &err_msg);
+        self.exitOnError("Failed getting target from triple", err_msg);
+
+        const target_machine = c.LLVMCreateTargetMachine(
+            target,
+            triple,
+            "",
+            "",
+            c.LLVMCodeGenLevelDefault,
+            c.LLVMRelocDefault,
+            c.LLVMCodeModelDefault,
+        );
+        defer c.LLVMDisposeTargetMachine(target_machine);
+        // c.LLVMSetDataLayout(module, c.LLVMCreateTargetDataLayout(target_machine));
+
+        err_msg = null;
+        _ = c.LLVMTargetMachineEmitToFile(target_machine, self.module, "out.s", c.LLVMAssemblyFile, &err_msg);
+        self.exitOnError("Failed printing .s file", err_msg);
+
+        err_msg = null;
+        _ = c.LLVMTargetMachineEmitToFile(target_machine, self.module, "out.o", c.LLVMObjectFile, &err_msg);
+        self.exitOnError("Failed printing .o file", err_msg);
     }
 };
 
