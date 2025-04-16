@@ -219,38 +219,24 @@ pub fn main() !void {
 
     var diagnostics = Diagnostics.init(allocator);
 
-    var lex = Lexer.Lexer.init(code, allocator);
+    var lex = Lexer.Lexer.init(code, &diagnostics, allocator);
     var tokens = try lex_tokens(&lex, allocator);
+    diagnostics.showAndFail() catch {
+        std.process.exit(1);
+    };
     const slice_tokens = try tokens.toOwnedSlice();
 
-    var parser = try Parser.init(slice_tokens, allocator);
-    var program = parser.parse() catch |err| {
-        if (parser.errors().*.items.len > 0) {
-            std.debug.print("Errors:\n", .{});
-            for (parser.errors().*.items, 1..) |e, i| {
-                std.debug.print("  {d}: {s}\n", .{ i, e });
-            }
-        }
-        return err;
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
+    var program = try parser.parse();
+    diagnostics.showAndFail() catch {
+        std.process.exit(1);
     };
-    if (parser.errors().*.items.len > 0) {
-        std.debug.print("Errors:\n", .{});
-        for (parser.errors().*.items, 1..) |e, i| {
-            std.debug.print("  {d}: {s}\n", .{ i, e });
-        }
-        return error.Badaboom;
-    }
 
     var type_checker = try tc.TypeChecker.init(&diagnostics, allocator);
     _ = try type_checker.inferAndCheck(&program);
-    if (type_checker.errors_list.items.len > 0) {
-        std.debug.print("Errors:\n", .{});
-        for (type_checker.errors_list.items, 1..) |e, i| {
-            std.debug.print("  {d}: {s}\n", .{ i, e });
-        }
-        return error.Badaboom;
-    }
-    try diagnostics.showAndFail();
+    diagnostics.showAndFail() catch {
+        std.process.exit(1);
+    };
 
     var compiler = try codegen.Compiler.init(@as([*c]u8, @ptrCast(@constCast("main"))), &type_checker.type_env, allocator);
     defer compiler.deinit();

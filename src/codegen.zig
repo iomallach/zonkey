@@ -323,6 +323,33 @@ pub const Compiler = struct {
 
                 return call;
             },
+            .WhileLoopStatement => |wls| {
+                std.debug.print("Visiting while loop statement\n", .{});
+                const current_block = c.LLVMGetInsertBlock(self.builder);
+                const function = c.LLVMGetBasicBlockParent(current_block);
+
+                const header_block = c.LLVMAppendBasicBlockInContext(self.context, function, "while.header");
+                const body_block = c.LLVMAppendBasicBlockInContext(self.context, function, "while.body");
+                const exit_block = c.LLVMAppendBasicBlockInContext(self.context, function, "while.exit");
+
+                _ = c.LLVMBuildBr(self.builder, header_block);
+
+                c.LLVMPositionBuilderAtEnd(self.builder, header_block);
+                const condition = try self.codegen(wls.condition);
+
+                _ = c.LLVMBuildCondBr(self.builder, condition, body_block, exit_block);
+
+                c.LLVMPositionBuilderAtEnd(self.builder, body_block);
+                try self.symbol_table.enterScope();
+                // discard as we can't make use of the block statements node
+                _ = try self.codegen(wls.statements);
+                self.symbol_table.exitScope();
+
+                _ = c.LLVMBuildBr(self.builder, header_block);
+
+                c.LLVMPositionBuilderAtEnd(self.builder, exit_block);
+                return null;
+            },
             else => unreachable,
         }
     }
@@ -347,10 +374,12 @@ pub const Compiler = struct {
         return switch (operator.*) {
             .Plus => switch (expr_type.*) {
                 .Float => c.LLVMBuildFAdd(self.builder, compiled_left, compiled_right, "fadd"),
+                .Integer => c.LLVMBuildAdd(self.builder, compiled_left, compiled_right, "iadd"),
                 else => unreachable,
             },
             .Minus => switch (expr_type.*) {
                 .Float => c.LLVMBuildFSub(self.builder, compiled_left, compiled_right, "fsub"),
+                .Integer => c.LLVMBuildSub(self.builder, compiled_left, compiled_right, "iadd"),
                 else => unreachable,
             },
             .Multiply => switch (expr_type.*) {

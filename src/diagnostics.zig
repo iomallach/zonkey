@@ -34,8 +34,8 @@ pub const function_call_param_error_fmt =
     \\ {s}^ here
     \\
 ;
-pub const if_expression_cond_error_fmt =
-    \\ {s} if condition must be a boolean expression, got '{any}' instead at line {d}, columnd {d}
+pub const cond_expression_error_fmt =
+    \\ {s} condition must be a boolean expression, got '{any}' instead at line {d}, columnd {d}
     \\ {s}
     \\ {s}^ here
     \\

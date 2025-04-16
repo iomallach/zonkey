@@ -166,9 +166,23 @@ pub const TypeChecker = struct {
                 return last_stmt_type orelse ast.Type.Void;
             },
             .WhileLoopStatement => |wls| {
-                // TODO: implement later
-                _ = wls;
-                unreachable;
+                const cond_type = try self.inferAndCheck(wls.condition);
+                try self.type_env.types.putNoClobber(wls.condition, cond_type);
+                if (cond_type != .Bool) {
+                    try self.diagnostics.reportError(
+                        diag.cond_expression_error_fmt,
+                        .{
+                            try self.diagnostics.getErrorMarker(),
+                            cond_type,
+                            wls.condition.getToken().span.line_number,
+                            wls.condition.getToken().span.start,
+                            wls.condition.getToken().span.source_chunk,
+                            try self.diagnostics.getErrorPointerSpaces(wls.condition.getToken()),
+                        },
+                    );
+                    return error.TypeViolation;
+                }
+                _ = try self.inferAndCheck(wls.statements);
             },
             .AssignmentStatement => |as| {
                 const ident_type = try self.inferAndCheck(as.name);
@@ -282,7 +296,7 @@ pub const TypeChecker = struct {
                 try self.type_env.types.putNoClobber(iff.condition, cond_type);
                 if (cond_type != .Bool) {
                     try self.diagnostics.reportError(
-                        diag.if_expression_cond_error_fmt,
+                        diag.cond_expression_error_fmt,
                         .{
                             try self.diagnostics.getErrorMarker(),
                             cond_type,
@@ -548,6 +562,7 @@ test "Infer simple expressions" {
         var program = try parse_program(test_case.input, &diagnostics, allocator);
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+
         try diagnostics.showAndFail();
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -579,6 +594,7 @@ test "Infer let statements" {
         var program = try parse_program(test_case.input, &diagnostics, allocator);
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+
         try diagnostics.showAndFail();
 
         try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("a")).typ);
@@ -609,6 +625,7 @@ test "Infer nested expressions" {
         var program = try parse_program(test_case.input, &diagnostics, allocator);
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+
         try diagnostics.showAndFail();
 
         const expression = program.Program.program.items[0].ExpressionStatement.expression;
@@ -660,6 +677,7 @@ test "Infer if expressions" {
         var program = try parse_program(test_case.input, &diagnostics, allocator);
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+
         try diagnostics.showAndFail();
 
         const if_expression = program.Program.program.items[test_case.statement_num].ExpressionStatement.expression;
@@ -713,6 +731,8 @@ test "Infer function declaration" {
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
 
+        try diagnostics.showAndFail();
+
         const function_decl = &program.Program.program.items[0];
         const symbol = checker.type_env.defs.get(function_decl).?;
         try std.testing.expectEqual(test_case.expected_ret_type, symbol.typ.Function.return_type);
@@ -743,6 +763,8 @@ test "Infer function call" {
         var program = try parse_program(test_case.input, &diagnostics, allocator);
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+
+        try diagnostics.showAndFail();
 
         const call_expr = program.Program.program.items[1].ExpressionStatement.expression;
         const typ = checker.type_env.types.get(call_expr).?;
@@ -779,6 +801,8 @@ test "Infer mixed expressions" {
         var program = try parse_program(test_case.input, &diagnostics, allocator);
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
+
+        try diagnostics.showAndFail();
 
         try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("foo")).typ);
     }
@@ -822,6 +846,8 @@ test "Infer assignment statements" {
         var checker = try TypeChecker.init(&diagnostics, allocator);
         _ = try checker.inferAndCheck(&program);
 
+        try diagnostics.showAndFail();
+
         try std.testing.expectEqual(test_case.expected, (try checker.type_env.resolveSymbol("a")).typ);
         const assign_ident = program.Program.program.items[1].AssignmentStatement.name;
         try std.testing.expectEqual(test_case.expected, checker.type_env.uses.get(assign_ident).?.typ);
@@ -840,8 +866,29 @@ test "Infer builtin print call" {
     var checker = try TypeChecker.init(&diagnostics, allocator);
     _ = try checker.inferAndCheck(&program);
 
+    try diagnostics.showAndFail();
+
     try std.testing.expectEqual(
         ast.Type.Integer,
         checker.type_env.types.get(program.Program.program.items[0].BuiltInCall.argument).?,
     );
+}
+
+test "Infer while loop statement" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "while 1 < 2 { 1 + 1; }";
+
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var program = try parse_program(input, &diagnostics, allocator);
+    var checker = try TypeChecker.init(&diagnostics, allocator);
+    _ = try checker.inferAndCheck(&program);
+
+    try diagnostics.showAndFail();
+
+    const while_loop = program.Program.program.items[0].WhileLoopStatement;
+
+    try std.testing.expectEqual(ast.Type.Bool, checker.type_env.types.get(while_loop.condition));
 }
