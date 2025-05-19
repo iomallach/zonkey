@@ -34,8 +34,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/llvm/19.1.7_1/include" });
-    exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/llvm/19.1.7_1/lib" });
+    exe.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/llvm/20.1.4/include" });
+    exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/Cellar/llvm/20.1.4/lib" });
     exe.linkLibC();
     exe.linkSystemLibrary("LLVM");
     b.installArtifact(exe);
