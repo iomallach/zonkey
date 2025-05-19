@@ -375,6 +375,9 @@ pub const TypeChecker = struct {
                 const left_type = try self.inferAndCheck(infx.left);
                 const right_type = try self.inferAndCheck(infx.right);
 
+                try self.type_env.types.putNoClobber(infx.left, left_type);
+                try self.type_env.types.putNoClobber(infx.right, right_type);
+
                 //infix on functions doesn't make sense
                 if (left_type == .Function or right_type == .Function) {
                     try self.diagnostics.reportError(
