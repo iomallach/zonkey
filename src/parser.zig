@@ -165,15 +165,30 @@ pub const Parser = struct {
         );
     }
 
+    fn synchronizeParser(self: *Parser) void {
+        // keep skipping tokens until we either found a semicolon or we're at EOF
+        while (!self.matchCurrentTokenType(tok.TokenType.SEMICOLON) and !self.matchCurrentTokenType(tok.TokenType.EOF)) {
+            self.advance();
+        }
+        // if semicolon, skip it. If eof, we'd still be at EOF
+        self.advance();
+    }
+
     pub fn parse(self: *Parser) error{OutOfMemory}!ast.AstNode {
         var program = ast.Program.init(self.alloc);
 
         while (!self.matchCurrentTokenType(tok.TokenType.EOF)) {
-            const stmt = try self.parseStatement();
+            const stmt = self.parseStatement() catch |err| {
+                switch (err) {
+                    error.OutOfMemory => |oom| return oom,
+                    error.UnexpectedToken => {
+                        self.synchronizeParser();
+                        continue;
+                    },
+                }
+            };
 
-            if (stmt) |s| {
-                try program.addStatement(s);
-            }
+            try program.addStatement(stmt);
             self.advance();
         }
 
@@ -182,7 +197,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseStatement(self: *Parser) error{OutOfMemory}!?ast.AstNode {
+    fn parseStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
         const node = switch (self.currentToken().token_type) {
             tok.TokenType.LET => self.parseLetStatement(),
             tok.TokenType.FUNCTION => self.parseFunctionDeclaration(),
@@ -199,13 +214,7 @@ pub const Parser = struct {
             else => self.parseExpressionStatement(),
         };
 
-        return node catch |err| {
-            switch (err) {
-                error.OutOfMemory => |oom| return oom,
-                //TODO: skip to the next statement, e.g. next ;
-                error.UnexpectedToken => return null,
-            }
-        };
+        return node;
     }
 
     fn parseLetStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
@@ -489,11 +498,16 @@ pub const Parser = struct {
 
         while (!self.matchCurrentTokenType(tok.TokenType.RBRACE) and !self.matchCurrentTokenType(tok.TokenType.EOF)) {
             // FIXME: should record an error and skip to the next statement
-            //TODO: take a second look at how this should be handled
-            const statement = try self.parseStatement();
-            if (statement) |s| {
-                try block_statements.addStatement(s);
-            }
+            const statement = self.parseStatement() catch |err| {
+                switch (err) {
+                    error.OutOfMemory => |oom| return oom,
+                    error.UnexpectedToken => {
+                        self.synchronizeParser();
+                        continue;
+                    },
+                }
+            };
+            try block_statements.addStatement(statement);
             // we're looking at the last token after each parselet, so skipping it
             self.advance();
         }
