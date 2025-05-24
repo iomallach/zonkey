@@ -101,7 +101,12 @@ pub const Compiler = struct {
     }
 
     fn declareBuiltInPrint(self: *Compiler) !void {
-        const param_types = [_]c.LLVMTypeRef{c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0)};
+        const param_types = [_]c.LLVMTypeRef{
+            c.LLVMPointerType(
+                c.LLVMInt8TypeInContext(self.context),
+                0,
+            ),
+        };
         const typ = c.LLVMFunctionType(
             c.LLVMInt32TypeInContext(self.context),
             @as([*c]c.LLVMTypeRef, @ptrCast(@constCast(&param_types))),
@@ -121,19 +126,7 @@ pub const Compiler = struct {
 
     pub fn run(self: *Compiler, program: *const ast.AstNode) !void {
         try self.declareBuiltInPrint();
-
-        const main_type = c.LLVMFunctionType(c.LLVMInt32TypeInContext(self.context), null, 0, 0);
-        const main_fn = c.LLVMAddFunction(self.module, "main", main_type);
-        self.current_function = main_fn;
-        const main_entry = c.LLVMAppendBasicBlockInContext(self.context, main_fn, "main_block");
-        c.LLVMPositionBuilderAtEnd(self.builder, main_entry);
-
         _ = try self.codegen(program);
-
-        const current_block = c.LLVMGetInsertBlock(self.builder);
-        if (c.LLVMGetBasicBlockTerminator(current_block) == null) {
-            _ = c.LLVMBuildRet(self.builder, c.LLVMConstInt(c.LLVMInt32TypeInContext(self.context), 0, 0));
-        }
 
         const ir_string = c.LLVMPrintModuleToString(self.module);
         defer c.LLVMDisposeMessage(ir_string);
@@ -272,15 +265,20 @@ pub const Compiler = struct {
                     const phi = c.LLVMBuildPhi(self.builder, self.getLLVMType(expr_type), "ifres");
                     const phiValues = [_]c.LLVMValueRef{ cons, altern };
                     const phiBlocks = [_]c.LLVMBasicBlockRef{ then_bb, else_bb };
-                    c.LLVMAddIncoming(phi, @as([*c]c.LLVMValueRef, @ptrCast(@constCast(&phiValues))), @as([*c]c.LLVMBasicBlockRef, @ptrCast(@constCast(&phiBlocks))), 2);
+                    c.LLVMAddIncoming(
+                        phi,
+                        @as([*c]c.LLVMValueRef, @ptrCast(@constCast(&phiValues))),
+                        @as([*c]c.LLVMBasicBlockRef, @ptrCast(@constCast(&phiBlocks))),
+                        2,
+                    );
                     return phi;
                 }
                 return null;
             },
             .FunctionLiteral => |fl| {
                 std.debug.print("Visiting function declaration\n", .{});
-                const cur_block = c.LLVMGetInsertBlock(self.builder);
-                const cur_instr = c.LLVMGetLastInstruction(cur_block);
+                // const cur_block = c.LLVMGetInsertBlock(self.builder);
+                // const cur_instr = c.LLVMGetLastInstruction(cur_block);
 
                 try self.symbol_table.enterScope();
                 var param_types = try self.allocator.alloc(c.LLVMTypeRef, fl.parameters.items.len);
@@ -288,7 +286,12 @@ pub const Compiler = struct {
                     const ast_type = self.type_env.defs.get(&fl.parameters.items[i]).?.typ;
                     param_types[i] = self.getLLVMType(ast_type);
                 }
-                const func_type = c.LLVMFunctionType(self.getLLVMType(fl.return_type), @as([*c]c.LLVMTypeRef, @ptrCast(@constCast(param_types))), @as(c_uint, @intCast(fl.parameters.items.len)), 0);
+                const func_type = c.LLVMFunctionType(
+                    self.getLLVMType(fl.return_type),
+                    @as([*c]c.LLVMTypeRef, @ptrCast(@constCast(param_types))),
+                    @as(c_uint, @intCast(fl.parameters.items.len)),
+                    0,
+                );
                 const name = try self.allocator.dupeZ(u8, fl.name.?);
                 const function = c.LLVMAddFunction(self.module, name, func_type);
                 const entry_block = c.LLVMAppendBasicBlockInContext(self.context, function, "entry");
@@ -315,12 +318,6 @@ pub const Compiler = struct {
                     .type_annotation = fl.return_type,
                     .is_parameter = false,
                 });
-
-                if (cur_instr) |_| {
-                    c.LLVMPositionBuilder(self.builder, cur_block, cur_instr);
-                } else {
-                    c.LLVMPositionBuilderAtEnd(self.builder, cur_block);
-                }
 
                 return null;
             },
@@ -415,7 +412,17 @@ pub const Compiler = struct {
                 }
                 return null;
             },
-            else => unreachable,
+            .AssignmentStatement => |as| {
+                const compiled_expr = try self.codegen(as.expression);
+                const symbol = self.symbol_table.lookup(as.name.Identifier.value).?;
+                _ = c.LLVMBuildStore(self.builder, compiled_expr, symbol.llvm_value);
+
+                return null;
+            },
+            else => {
+                std.debug.print("Unknown node {any}\n", .{node});
+                unreachable;
+            },
         }
     }
 
@@ -455,34 +462,34 @@ pub const Compiler = struct {
                 .Float => c.LLVMBuildFDiv(self.builder, compiled_left, compiled_right, "fmul"),
                 else => unreachable,
             },
-            .EqualEqual => switch (expr_type.*) {
+            .EqualEqual => switch (self.type_env.types.get(left).?) {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOEQ, compiled_left, compiled_right, "fecmp"),
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntEQ, compiled_left, compiled_right, "iecmp"),
                 .Bool => c.LLVMBuildICmp(self.builder, c.LLVMIntEQ, compiled_left, compiled_right, "becmp"),
                 else => unreachable,
             },
-            .NotEqual => switch (expr_type.*) {
+            .NotEqual => switch (self.type_env.types.get(left).?) {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealONE, compiled_left, compiled_right, "fnecmp"),
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntNE, compiled_left, compiled_right, "inecmp"),
                 .Bool => c.LLVMBuildICmp(self.builder, c.LLVMIntNE, compiled_left, compiled_right, "becmp"),
                 else => unreachable,
             },
-            .Greater => switch (expr_type.*) {
+            .Greater => switch (self.type_env.types.get(left).?) {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOGT, compiled_left, compiled_right, "fgtcmp"),
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSGT, compiled_left, compiled_right, "igtcmp"),
                 else => unreachable,
             },
-            .Less => switch (expr_type.*) {
-                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOLT, compiled_left, compiled_right, "fltcmp"),
+            .Less => switch (self.type_env.types.get(left).?) {
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSLT, compiled_left, compiled_right, "iltcmp"),
+                .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOLT, compiled_left, compiled_right, "fltcmp"),
                 else => unreachable,
             },
-            .GreaterEqual => switch (expr_type.*) {
+            .GreaterEqual => switch (self.type_env.types.get(left).?) {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOGE, compiled_left, compiled_right, "fgecmp"),
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSGE, compiled_left, compiled_right, "igecmp"),
                 else => unreachable,
             },
-            .LessEqual => switch (expr_type.*) {
+            .LessEqual => switch (self.type_env.types.get(left).?) {
                 .Float => c.LLVMBuildFCmp(self.builder, c.LLVMRealOLE, compiled_left, compiled_right, "flecmp"),
                 .Integer => c.LLVMBuildICmp(self.builder, c.LLVMIntSLE, compiled_left, compiled_right, "ilecmp"),
                 else => unreachable,
