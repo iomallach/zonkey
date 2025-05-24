@@ -116,8 +116,14 @@ pub const Lexer = struct {
                 token = tok.Token{ .token_type = tok.TokenType.SEMICOLON, .literal = self.slice_literal(1), .span = span };
             },
             '(' => {
-                span = self.token_span(self.position, self.position);
-                token = tok.Token{ .token_type = tok.TokenType.LPAREN, .literal = self.slice_literal(1), .span = span };
+                if (self.peek() == ')') {
+                    span = self.token_span(self.position, self.position + 1);
+                    token = tok.Token{ .token_type = tok.TokenType.UNIT, .literal = self.slice_literal(2), .span = span };
+                    self.advance();
+                } else {
+                    span = self.token_span(self.position, self.position);
+                    token = tok.Token{ .token_type = tok.TokenType.LPAREN, .literal = self.slice_literal(1), .span = span };
+                }
             },
             ')' => {
                 span = self.token_span(self.position, self.position);

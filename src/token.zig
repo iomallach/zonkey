@@ -9,7 +9,8 @@ pub const TokenType = enum {
     INT,
     FLOAT,
 
-    Type,
+    TYPE,
+    UNIT,
 
     // Operators
     EQUAL,
@@ -76,11 +77,10 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "return", TokenType.RETURN },
     .{ "true", TokenType.TRUE },
     .{ "false", TokenType.FALSE },
-    .{ "int", TokenType.Type },
-    .{ "float", TokenType.Type },
-    .{ "string", TokenType.Type },
-    .{ "bool", TokenType.Type },
-    .{ "void", TokenType.Type },
+    .{ "int", TokenType.TYPE },
+    .{ "float", TokenType.TYPE },
+    .{ "string", TokenType.TYPE },
+    .{ "bool", TokenType.TYPE },
     .{ "while", TokenType.WHILE },
 });
 
