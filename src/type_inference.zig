@@ -163,7 +163,7 @@ pub const TypeChecker = struct {
                 }
                 self.type_env.exitScope();
 
-                return last_stmt_type orelse ast.Type.Void;
+                return last_stmt_type orelse ast.Type.Unit;
             },
             .WhileLoopStatement => |wls| {
                 const cond_type = try self.inferAndCheck(wls.condition);
@@ -289,7 +289,7 @@ pub const TypeChecker = struct {
                 const expr_type = try self.inferAndCheck(bic.argument);
                 try self.type_env.types.putNoClobber(bic.argument, expr_type);
 
-                return ast.Type.Void;
+                return ast.Type.Unit;
             },
             .If => |iff| {
                 const cond_type = try self.inferAndCheck(iff.condition);
@@ -395,7 +395,7 @@ pub const TypeChecker = struct {
                     return error.TypeViolation;
                 }
                 // string and void are immediately unsupported in infix at the moment
-                if (left_type == .String or left_type == .Void or right_type == .String or right_type == .Void) {
+                if (left_type == .String or left_type == .Unit or right_type == .String or right_type == .Unit) {
                     try self.diagnostics.reportError(
                         diag.infix_expression_type_eror_fmt,
                         .{
@@ -493,7 +493,7 @@ pub const TypeChecker = struct {
             },
             else => unreachable,
         }
-        return ast.Type.Void;
+        return ast.Type.Unit;
     }
 };
 
@@ -646,19 +646,19 @@ test "Infer if expressions" {
     const tests = [_]TestCase{
         .{
             .expected_cond_type = ast.Type.Bool,
-            .expected_expr_type = ast.Type.Void,
+            .expected_expr_type = ast.Type.Unit,
             .input = "if true == false {}",
             .statement_num = 0,
         },
         .{
             .expected_cond_type = ast.Type.Bool,
-            .expected_expr_type = ast.Type.Void,
+            .expected_expr_type = ast.Type.Unit,
             .input = "if !(3 < 5) { let a = 3; } else {}",
             .statement_num = 0,
         },
         .{
             .expected_cond_type = ast.Type.Bool,
-            .expected_expr_type = ast.Type.Void,
+            .expected_expr_type = ast.Type.Unit,
             .input = "let a = (5 * 2) < 10; if a {}",
             .statement_num = 1,
         },
@@ -700,27 +700,27 @@ test "Infer function declaration" {
         .{
             .expected_ret_type = ast.Type.Integer,
             .expected_param_types = &[_]ast.Type{ast.Type.Integer},
-            .input = "fn myfunc(x: int) int { return x; }",
+            .input = "fn myfunc(x: int) -> int { return x; }",
         },
         .{
             .expected_ret_type = ast.Type.Integer,
             .expected_param_types = &[_]ast.Type{ ast.Type.Integer, ast.Type.Integer },
-            .input = "fn myfunc(x: int, y: int) int { return x * y; }",
+            .input = "fn myfunc(x: int, y: int) -> int { return x * y; }",
         },
         .{
             .expected_ret_type = ast.Type.Float,
             .expected_param_types = &[_]ast.Type{ ast.Type.Float, ast.Type.Float },
-            .input = "fn myfunc(x: float, y: float) float { return x * y; }",
+            .input = "fn myfunc(x: float, y: float) -> float { return x * y; }",
         },
         .{
             .expected_ret_type = ast.Type.Float,
             .expected_param_types = &[_]ast.Type{ ast.Type.Integer, ast.Type.Float },
-            .input = "fn myfunc(x: int, y: float) float { return x * y; }",
+            .input = "fn myfunc(x: int, y: float) -> float { return x * y; }",
         },
         .{
             .expected_ret_type = ast.Type.Bool,
             .expected_param_types = &[_]ast.Type{},
-            .input = "fn myfunc() bool { return !false; }",
+            .input = "fn myfunc() -> bool { return !false; }",
         },
     };
 
@@ -751,10 +751,10 @@ test "Infer function call" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Integer, .input = "fn myfunc(x: int) int { return x; }; myfunc(3)" },
+        .{ .expected = ast.Type.Integer, .input = "fn myfunc(x: int) -> int { return x; }; myfunc(3)" },
         // FIXME: \n causes integer overflow panic in lexer
-        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: float, y: float) float { return x * y; }; myfunc(1.0, 3.3)" },
-        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: int, y: float) float { return x * y; }; myfunc(1, 3.3)" },
+        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: float, y: float) -> float { return x * y; }; myfunc(1.0, 3.3)" },
+        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: int, y: float) -> float { return x * y; }; myfunc(1, 3.3)" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -783,15 +783,15 @@ test "Infer mixed expressions" {
     const tests = [_]TestCase{
         .{
             .expected = ast.Type.Integer,
-            .input = "fn myfunc(x: int) int { return 1 + x; }; let foo = 3 + myfunc(2);",
+            .input = "fn myfunc(x: int) -> int { return 1 + x; }; let foo = 3 + myfunc(2);",
         },
         .{
             .expected = ast.Type.Float,
-            .input = "fn myfunc(x: int) int { return 1 + x; }; let foo = 3.0 + myfunc(2);",
+            .input = "fn myfunc(x: int) -> int { return 1 + x; }; let foo = 3.0 + myfunc(2);",
         },
         .{
             .expected = ast.Type.Bool,
-            .input = "fn myfunc(z: bool) bool { return !z; }; let foo = (3 < 5) != myfunc(1 > 2);",
+            .input = "fn myfunc(z: bool) -> bool { return !z; }; let foo = (3 < 5) != myfunc(1 > 2);",
         },
     };
 

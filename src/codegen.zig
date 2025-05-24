@@ -261,7 +261,7 @@ pub const Compiler = struct {
 
                 std.debug.print("Positioning builder at merge branch\n", .{});
                 c.LLVMPositionBuilderAtEnd(self.builder, merge_bb);
-                if (expr_type != .Void) {
+                if (expr_type != .Unit) {
                     const phi = c.LLVMBuildPhi(self.builder, self.getLLVMType(expr_type), "ifres");
                     const phiValues = [_]c.LLVMValueRef{ cons, altern };
                     const phiBlocks = [_]c.LLVMBasicBlockRef{ then_bb, else_bb };
@@ -324,7 +324,7 @@ pub const Compiler = struct {
             .ReturnStatement => |rs| {
                 std.debug.print("Visiting return statement\n", .{});
                 const typ = self.type_env.types.get(rs.return_value).?;
-                if (typ == .Void) {
+                if (typ == .Unit) {
                     _ = c.LLVMBuildRetVoid(self.builder);
                 }
                 const expr = try self.codegen(rs.return_value);
@@ -503,7 +503,7 @@ pub const Compiler = struct {
             .Float => return c.LLVMDoubleTypeInContext(self.context),
             .Bool => return c.LLVMInt1TypeInContext(self.context),
             .String => return c.LLVMPointerType(c.LLVMInt8TypeInContext(self.context), 0),
-            .Void => return c.LLVMVoidTypeInContext(self.context),
+            .Unit => return c.LLVMVoidTypeInContext(self.context),
             else => unreachable,
         }
     }
