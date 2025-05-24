@@ -228,7 +228,7 @@ pub const Parser = struct {
         var type_annotation: ?ast.Type = null;
         if (self.matchPeekTokenType(tok.TokenType.COLON)) {
             self.advance();
-            try self.matchNextAndAdvance(tok.TokenType.Type);
+            try self.matchNextAndAdvance(tok.TokenType.TYPE);
             //FIXME: what if there is no valid type annotation?
             //FIXME: what if there is a composite aka function type?
             //TODO: implement function type parsing
@@ -527,7 +527,8 @@ pub const Parser = struct {
 
         const parameters = try self.parseFunctionParameters();
 
-        try self.matchNextAndAdvance(tok.TokenType.Type);
+        try self.matchNextAndAdvance(tok.TokenType.RETURN_TYPE);
+        self.advance();
         const return_type = self.parsePrimitiveTypeAnnotation();
 
         try self.matchNextAndAdvance(tok.TokenType.LBRACE);
@@ -556,7 +557,8 @@ pub const Parser = struct {
 
         const parameters = try self.parseFunctionParameters();
 
-        try self.matchNextAndAdvance(tok.TokenType.Type);
+        try self.matchNextAndAdvance(tok.TokenType.RETURN_TYPE);
+        self.advance();
         const return_type = self.parsePrimitiveTypeAnnotation();
 
         try self.matchNextAndAdvance(tok.TokenType.LBRACE);
@@ -593,7 +595,7 @@ pub const Parser = struct {
         };
         //FIXME: duplicated in a few places now
         try self.matchNextAndAdvance(tok.TokenType.COLON);
-        try self.matchNextAndAdvance(tok.TokenType.Type);
+        try self.matchNextAndAdvance(tok.TokenType.TYPE);
 
         var type_annotation = self.parsePrimitiveTypeAnnotation();
         try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
@@ -615,7 +617,7 @@ pub const Parser = struct {
                 .Identifier = ident,
             };
             try self.matchNextAndAdvance(tok.TokenType.COLON);
-            try self.matchNextAndAdvance(tok.TokenType.Type);
+            try self.matchNextAndAdvance(tok.TokenType.TYPE);
 
             type_annotation = self.parsePrimitiveTypeAnnotation();
             try parameters.append(ast.AstNode{ .FunctionParameter = ast.FunctionParameter{
@@ -1130,7 +1132,7 @@ test "Parse function literal" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input = "fn foo(x: float, y: float) float { x+y; }";
+    const input = "fn foo(x: float, y: float) -> float { x+y; }";
     const left_exp: []const u8 = "x";
     const right_exp: []const u8 = "y";
     const fn_name: []const u8 = "foo";
@@ -1166,9 +1168,9 @@ test "Parse function parameters" {
         }
     };
     const tests = [_]TestCase{
-        .{ .input = "let foo = fn() void {};", .parameters = &[_][]const u8{} },
-        .{ .input = "let foo = fn(x: int) void {};", .parameters = TestCase.strSlice(&.{"x"}) },
-        .{ .input = "let foo = fn(x: float, y: string) void {};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
+        .{ .input = "let foo = fn() -> () {};", .parameters = &[_][]const u8{} },
+        .{ .input = "let foo = fn(x: int) -> () {};", .parameters = TestCase.strSlice(&.{"x"}) },
+        .{ .input = "let foo = fn(x: float, y: string) -> () {};", .parameters = TestCase.strSlice(&.{ "x", "y" }) },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

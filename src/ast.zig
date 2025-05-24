@@ -80,7 +80,7 @@ pub const Type = union(enum) {
     Integer,
     Float,
     String,
-    Void,
+    Unit,
     Function: *FunctionType,
 
     pub fn primitiveFromLiteral(literal: []const u8) Type {
@@ -100,8 +100,8 @@ pub const Type = union(enum) {
             return .String;
         }
 
-        if (std.mem.eql(u8, "void", literal)) {
-            return .Void;
+        if (std.mem.eql(u8, "()", literal)) {
+            return .Unit;
         }
         unreachable;
     }
@@ -119,7 +119,7 @@ pub const Type = union(enum) {
             .Integer => try writer.writeAll("int"),
             .Float => try writer.writeAll("float"),
             .String => try writer.writeAll("string"),
-            .Void => try writer.writeAll("void"),
+            .Unit => try writer.writeAll("void"),
             .Function => try writer.writeAll("function"),
         }
     }

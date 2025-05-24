@@ -8,7 +8,7 @@ const TestCase = struct {
 };
 
 test "Test symbols" {
-    const input = "[ ] = ] == ; ( ) , + { } != ! / * < > - : <= >=";
+    const input = "[ ] = ] == ; ( ) , + { } != ! / * < > - : <= >= -> fn()";
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -40,6 +40,10 @@ test "Test symbols" {
         .{ .expected_type = TokenType.COLON, .expected_literal = ":" },
         .{ .expected_type = TokenType.LESS_EQUAL, .expected_literal = "<=" },
         .{ .expected_type = TokenType.GREATER_EQUAL, .expected_literal = ">=" },
+        .{ .expected_type = TokenType.RETURN_TYPE, .expected_literal = "->" },
+        .{ .expected_type = TokenType.FUNCTION, .expected_literal = "fn" },
+        .{ .expected_type = TokenType.LPAREN, .expected_literal = "(" },
+        .{ .expected_type = TokenType.RPAREN, .expected_literal = ")" },
     };
 
     for (tests) |test_case| {

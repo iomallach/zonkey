@@ -26,6 +26,8 @@ pub const TokenType = enum {
     EQUAL_EQUAL,
     BANG_EQUAL,
 
+    RETURN_TYPE,
+
     COMMA,
     SEMICOLON,
     COLON,

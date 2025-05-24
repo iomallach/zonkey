@@ -11,6 +11,7 @@ pub const Lexer = struct {
     position: usize,
     cur_line: usize,
     cur_line_start: usize,
+    last_token_type: tok.TokenType,
 
     diagnostics: *diag.Diagnostics,
 
@@ -22,6 +23,7 @@ pub const Lexer = struct {
             .position = 0,
             .cur_line = 1,
             .cur_line_start = 0,
+            .last_token_type = tok.TokenType.ILLEGAL,
             .diagnostics = diagnostics,
             .allocator = alloc,
         };
@@ -116,7 +118,7 @@ pub const Lexer = struct {
                 token = tok.Token{ .token_type = tok.TokenType.SEMICOLON, .literal = self.slice_literal(1), .span = span };
             },
             '(' => {
-                if (self.peek() == ')') {
+                if (self.peek() == ')' and self.last_token_type != tok.TokenType.FUNCTION) {
                     span = self.token_span(self.position, self.position + 1);
                     token = tok.Token{ .token_type = tok.TokenType.UNIT, .literal = self.slice_literal(2), .span = span };
                     self.advance();
@@ -184,8 +186,14 @@ pub const Lexer = struct {
                 }
             },
             '-' => {
-                span = self.token_span(self.position, self.position);
-                token = tok.Token{ .token_type = tok.TokenType.MINUS, .literal = self.slice_literal(1), .span = span };
+                if (self.peek() == '>') {
+                    span = self.token_span(self.position, self.position + 1);
+                    token = tok.Token{ .token_type = tok.TokenType.RETURN_TYPE, .literal = self.slice_literal(2), .span = span };
+                    self.advance();
+                } else {
+                    span = self.token_span(self.position, self.position);
+                    token = tok.Token{ .token_type = tok.TokenType.MINUS, .literal = self.slice_literal(1), .span = span };
+                }
             },
             '"' => {
                 // skip the '"' in the literal
@@ -205,22 +213,42 @@ pub const Lexer = struct {
                 if (self.is_letter()) {
                     const literal_and_span = self.consume_while(Lexer.is_letter);
                     const token_type = tok.map_identifier(literal_and_span.literal);
-                    return tok.Token{ .token_type = token_type, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                    self.last_token_type = token_type;
+                    return tok.Token{
+                        .token_type = token_type,
+                        .literal = literal_and_span.literal,
+                        .span = literal_and_span.span,
+                    };
                 } else if (self.is_integer()) {
                     const literal_and_span = self.consume_while(Lexer.is_numeric);
                     if (std.mem.indexOf(u8, literal_and_span.literal, ".")) |index| {
                         _ = index;
-                        return tok.Token{ .token_type = tok.TokenType.FLOAT, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                        self.last_token_type = tok.TokenType.FLOAT;
+                        return tok.Token{
+                            .token_type = self.last_token_type,
+                            .literal = literal_and_span.literal,
+                            .span = literal_and_span.span,
+                        };
                     }
-                    return tok.Token{ .token_type = tok.TokenType.INT, .literal = literal_and_span.literal, .span = literal_and_span.span };
+                    self.last_token_type = tok.TokenType.INT;
+                    return tok.Token{
+                        .token_type = self.last_token_type,
+                        .literal = literal_and_span.literal,
+                        .span = literal_and_span.span,
+                    };
                 } else {
                     span = self.token_span(self.position, self.position);
-                    token = tok.Token{ .token_type = tok.TokenType.ILLEGAL, .literal = self.slice_literal(1), .span = span };
+                    token = tok.Token{
+                        .token_type = tok.TokenType.ILLEGAL,
+                        .literal = self.slice_literal(1),
+                        .span = span,
+                    };
                 }
             },
         }
 
         self.advance();
+        self.last_token_type = token.token_type;
         return token;
     }
 
