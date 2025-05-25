@@ -168,6 +168,7 @@ const AstNodeKind = enum {
 };
 
 pub const AstNode = union(AstNodeKind) {
+    // Statements
     Program: Program,
     LetStatement: LetStatement,
     ReturnStatement: ReturnStatement,
@@ -175,6 +176,7 @@ pub const AstNode = union(AstNodeKind) {
     BlockStatement: BlockStatement,
     WhileLoopStatement: WhileLoopStatement,
     AssignmentStatement: AssignmentStatement,
+    // Expressions
     Identifier: Identifier,
     IntegerLiteral: IntegerLiteral,
     FloatLiteral: FloatLiteral,

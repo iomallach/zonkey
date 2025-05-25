@@ -245,6 +245,8 @@ pub const Parser = struct {
     fn parseStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!?ast.AstNode {
         const node = switch (self.currentToken().token_type) {
             tok.TokenType.LET => try self.parseLetStatement(),
+            //NOTE: we either parse a top level if as a statement or as part of an expression statement
+            tok.TokenType.IF => try self.parseIfExpressionStatement(),
             tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
             tok.TokenType.RETURN => try self.parseReturnStatement(),
             tok.TokenType.WHILE => try self.parseWhileLoopStatement(),
@@ -490,6 +492,25 @@ pub const Parser = struct {
             .left = heapLeftExpressionNode,
             .right = heapRightExpressionNode,
         } };
+    }
+
+    fn parseIfExpressionStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
+        const if_expression = try self.parseIfExpression();
+
+        const heap_expression = try self.alloc.create(ast.AstNode);
+        heap_expression.* = if_expression;
+
+        if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
+            self.advance();
+        }
+
+        return ast.AstNode{
+            .ExpressionStatement = ast.ExpressionStatement{
+                .token = heap_expression.If.token,
+                .expression = heap_expression,
+                .discarded = true,
+            },
+        };
     }
 
     fn parseIfExpression(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
