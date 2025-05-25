@@ -543,7 +543,7 @@ pub const Parser = struct {
                 // we're looking at the last token after each parselet, so skipping it
                 self.advance();
             } else {
-                // try parsing an expression first
+                // try parsing an expression if there was no statement
                 const token = self.currentToken();
                 const expression = self.parseExpression(Precedence.LOWEST) catch |err| {
                     switch (err) {
@@ -557,6 +557,7 @@ pub const Parser = struct {
 
                 const heap_expression = try self.alloc.create(ast.AstNode);
                 heap_expression.* = expression;
+
                 if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
                     self.advance();
                     // skip the semicolon too
