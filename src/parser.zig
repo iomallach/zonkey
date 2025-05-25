@@ -65,6 +65,7 @@ pub const Parser = struct {
 
     fn registerParsers(self: *Parser) !void {
         try self.prefix_fns.put(tok.TokenType.INT, Parser.parseIntegerLiteral);
+        try self.prefix_fns.put(tok.TokenType.UNIT, Parser.parseUnitLiteral);
         try self.prefix_fns.put(tok.TokenType.FLOAT, Parser.parseFloatLiteral);
         try self.prefix_fns.put(tok.TokenType.IDENT, Parser.parseIdentifier);
         try self.prefix_fns.put(tok.TokenType.STRING, Parser.parseStringLiteral);
@@ -363,6 +364,15 @@ pub const Parser = struct {
                 .value = std.fmt.parseInt(i64, token.literal, 10) catch {
                     unreachable;
                 },
+            },
+        };
+    }
+
+    fn parseUnitLiteral(self: *Parser) !ast.AstNode {
+        const token = self.currentToken();
+        return ast.AstNode{
+            .UnitLiteral = ast.UnitLiteral{
+                .token = token,
             },
         };
     }
@@ -866,6 +876,9 @@ const TestHelpers = struct {
                 if (expression.* == .FunctionParameter) {
                     return TestHelpers.test_identifier(expression.FunctionParameter.ident, expected);
                 }
+                if (expression.* == .UnitLiteral) {
+                    return TestHelpers.test_unit_literal(expression, expected);
+                }
                 unreachable;
             },
             else => {
@@ -906,6 +919,11 @@ const TestHelpers = struct {
         try std.testing.expectEqualStrings(expression.*.Identifier.value, expected);
         try std.testing.expectEqualStrings(expression.*.Identifier.token.literal, expected);
     }
+
+    pub fn test_unit_literal(expression: *const ast.AstNode, expected: []const u8) !void {
+        try std.testing.expect(expression.* == .UnitLiteral);
+        try std.testing.expectEqualStrings(expected, expression.*.getToken().literal);
+    }
 };
 
 test "Test parse let statement" {
@@ -938,6 +956,11 @@ test "Test parse let statement" {
             .input = "let barbaz: string = \"str\";",
             .expected_identifier = "barbaz",
             .expected_value = Value{ .string = "str" },
+        },
+        .{
+            .input = "let bazbar = ();",
+            .expected_identifier = "bazbar",
+            .expected_value = Value{ .string = "()" },
         },
         //TODO: still need to implement function literal parsing
     };

@@ -217,6 +217,7 @@ pub const AstNode = union(AstNodeKind) {
             .Infix => |n| n.getToken(),
             .If => |n| n.getToken(),
             .Index => |n| n.getToken(),
+            .UnitLiteral => |n| n.getToken(),
         };
     }
 };
@@ -331,6 +332,10 @@ pub const Identifier = struct {
 
 pub const UnitLiteral = struct {
     token: tok.Token,
+
+    pub fn getToken(self: *const UnitLiteral) *const tok.Token {
+        return &self.token;
+    }
 };
 
 pub const IntegerLiteral = struct {
