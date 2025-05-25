@@ -545,7 +545,6 @@ pub const Parser = struct {
             } else {
                 // try parsing an expression first
                 const token = self.currentToken();
-                std.debug.print("Token: {any}\n", .{token});
                 const expression = self.parseExpression(Precedence.LOWEST) catch |err| {
                     switch (err) {
                         error.OutOfMemory => |oom| return oom,
@@ -555,7 +554,6 @@ pub const Parser = struct {
                         },
                     }
                 };
-                std.debug.print("Through expression!!!!!!\n", .{});
 
                 const heap_expression = try self.alloc.create(ast.AstNode);
                 heap_expression.* = expression;

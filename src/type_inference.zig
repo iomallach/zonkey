@@ -525,35 +525,35 @@ test "Infer simple expressions" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Integer, .input = "4" },
-        .{ .expected = ast.Type.Float, .input = "5.4" },
-        .{ .expected = ast.Type.String, .input = "\"test\"" },
-        .{ .expected = ast.Type.Bool, .input = "true" },
-        .{ .expected = ast.Type.Bool, .input = "!true" },
-        .{ .expected = ast.Type.Bool, .input = "!false" },
-        .{ .expected = ast.Type.Integer, .input = "-5" },
-        .{ .expected = ast.Type.Float, .input = "-7.3" },
-        .{ .expected = ast.Type.Integer, .input = "5 - 3" },
-        .{ .expected = ast.Type.Float, .input = "5.0 - 3" },
-        .{ .expected = ast.Type.Integer, .input = "5 + 3" },
-        .{ .expected = ast.Type.Integer, .input = "5 / 3" },
-        .{ .expected = ast.Type.Integer, .input = "5 * 3" },
-        .{ .expected = ast.Type.Float, .input = "5.1 * 3.1" },
-        .{ .expected = ast.Type.Float, .input = "5 * 3.1" },
-        .{ .expected = ast.Type.Bool, .input = "5 == 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 != 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 > 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 < 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 >= 3" },
-        .{ .expected = ast.Type.Bool, .input = "5 <= 3" },
-        .{ .expected = ast.Type.Bool, .input = "true == false" },
-        .{ .expected = ast.Type.Bool, .input = "true == true" },
-        .{ .expected = ast.Type.Bool, .input = "false == false" },
-        .{ .expected = ast.Type.Bool, .input = "false == true" },
-        .{ .expected = ast.Type.Bool, .input = "true != false" },
-        .{ .expected = ast.Type.Bool, .input = "true != true" },
-        .{ .expected = ast.Type.Bool, .input = "false != false" },
-        .{ .expected = ast.Type.Bool, .input = "false != true" },
+        .{ .expected = ast.Type.Integer, .input = "4;" },
+        .{ .expected = ast.Type.Float, .input = "5.4;" },
+        .{ .expected = ast.Type.String, .input = "\"test\";" },
+        .{ .expected = ast.Type.Bool, .input = "true;" },
+        .{ .expected = ast.Type.Bool, .input = "!true;" },
+        .{ .expected = ast.Type.Bool, .input = "!false;" },
+        .{ .expected = ast.Type.Integer, .input = "-5;" },
+        .{ .expected = ast.Type.Float, .input = "-7.3;" },
+        .{ .expected = ast.Type.Integer, .input = "5 - 3;" },
+        .{ .expected = ast.Type.Float, .input = "5.0 - 3;" },
+        .{ .expected = ast.Type.Integer, .input = "5 + 3;" },
+        .{ .expected = ast.Type.Integer, .input = "5 / 3;" },
+        .{ .expected = ast.Type.Integer, .input = "5 * 3;" },
+        .{ .expected = ast.Type.Float, .input = "5.1 * 3.1;" },
+        .{ .expected = ast.Type.Float, .input = "5 * 3.1;" },
+        .{ .expected = ast.Type.Bool, .input = "5 == 3;" },
+        .{ .expected = ast.Type.Bool, .input = "5 != 3;" },
+        .{ .expected = ast.Type.Bool, .input = "5 > 3;" },
+        .{ .expected = ast.Type.Bool, .input = "5 < 3;" },
+        .{ .expected = ast.Type.Bool, .input = "5 >= 3;" },
+        .{ .expected = ast.Type.Bool, .input = "5 <= 3;" },
+        .{ .expected = ast.Type.Bool, .input = "true == false;" },
+        .{ .expected = ast.Type.Bool, .input = "true == true;" },
+        .{ .expected = ast.Type.Bool, .input = "false == false;" },
+        .{ .expected = ast.Type.Bool, .input = "false == true;" },
+        .{ .expected = ast.Type.Bool, .input = "true != false;" },
+        .{ .expected = ast.Type.Bool, .input = "true != true;" },
+        .{ .expected = ast.Type.Bool, .input = "false != false;" },
+        .{ .expected = ast.Type.Bool, .input = "false != true;" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -580,12 +580,12 @@ test "Infer let statements" {
     };
     // TODO: need un-happy path tests
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.String, .input = "let a = \"test\"" },
-        .{ .expected = ast.Type.String, .input = "let a: string = \"test\"" },
-        .{ .expected = ast.Type.Integer, .input = "let a = 4 + 3" },
-        .{ .expected = ast.Type.Float, .input = "let a = 4.0 + 3.0" },
-        .{ .expected = ast.Type.Float, .input = "let a = 4 / 3.0" },
-        .{ .expected = ast.Type.Bool, .input = "let a = !true" },
+        .{ .expected = ast.Type.String, .input = "let a = \"test\";" },
+        .{ .expected = ast.Type.String, .input = "let a: string = \"test\";" },
+        .{ .expected = ast.Type.Integer, .input = "let a = 4 + 3;" },
+        .{ .expected = ast.Type.Float, .input = "let a = 4.0 + 3.0;" },
+        .{ .expected = ast.Type.Float, .input = "let a = 4 / 3.0;" },
+        .{ .expected = ast.Type.Bool, .input = "let a = !true;" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -610,13 +610,13 @@ test "Infer nested expressions" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Integer, .input = "-1 + 2" },
-        .{ .expected = ast.Type.Integer, .input = "2 + 3 - 1 * 2" },
-        .{ .expected = ast.Type.Integer, .input = "-(4 + 5) / 3" },
-        .{ .expected = ast.Type.Float, .input = "-(4 + 5) / 3.0" },
-        .{ .expected = ast.Type.Bool, .input = "!(2 < 3)" },
-        .{ .expected = ast.Type.Bool, .input = "!(2 < 3.0)" },
-        .{ .expected = ast.Type.Bool, .input = "!(!true == false)" },
+        .{ .expected = ast.Type.Integer, .input = "-1 + 2;" },
+        .{ .expected = ast.Type.Integer, .input = "2 + 3 - 1 * 2;" },
+        .{ .expected = ast.Type.Integer, .input = "-(4 + 5) / 3;" },
+        .{ .expected = ast.Type.Float, .input = "-(4 + 5) / 3.0;" },
+        .{ .expected = ast.Type.Bool, .input = "!(2 < 3);" },
+        .{ .expected = ast.Type.Bool, .input = "!(2 < 3.0);" },
+        .{ .expected = ast.Type.Bool, .input = "!(!true == false);" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -751,10 +751,10 @@ test "Infer function call" {
         input: []const u8,
     };
     const tests = [_]TestCase{
-        .{ .expected = ast.Type.Integer, .input = "fn myfunc(x: int) -> int { return x; }; myfunc(3)" },
+        .{ .expected = ast.Type.Integer, .input = "fn myfunc(x: int) -> int { return x; }; myfunc(3);" },
         // FIXME: \n causes integer overflow panic in lexer
-        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: float, y: float) -> float { return x * y; }; myfunc(1.0, 3.3)" },
-        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: int, y: float) -> float { return x * y; }; myfunc(1, 3.3)" },
+        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: float, y: float) -> float { return x * y; }; myfunc(1.0, 3.3);" },
+        .{ .expected = ast.Type.Float, .input = "fn myfunc(x: int, y: float) -> float { return x * y; }; myfunc(1, 3.3);" },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
