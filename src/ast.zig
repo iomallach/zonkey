@@ -267,6 +267,7 @@ pub const ReturnStatement = struct {
 pub const ExpressionStatement = struct {
     token: tok.Token,
     expression: *AstNode, // ExpressionNode
+    discarded: bool,
 
     pub fn getToken(self: *const ExpressionStatement) *const tok.Token {
         return &self.token;

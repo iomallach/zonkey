@@ -166,8 +166,8 @@ pub const Parser = struct {
     }
 
     fn synchronizeParser(self: *Parser) void {
-        // keep skipping tokens until we either found a semicolon or we're at EOF
-        while (!self.matchCurrentTokenType(tok.TokenType.SEMICOLON) and !self.matchCurrentTokenType(tok.TokenType.EOF)) {
+        // keep skipping tokens until we either found a semicolon or we're at EOF or we've hit a block end
+        while (!self.matchCurrentTokenType(tok.TokenType.SEMICOLON) and !self.matchCurrentTokenType(tok.TokenType.EOF) and !self.matchCurrentTokenType(tok.TokenType.RBRACE)) {
             self.advance();
         }
         // if semicolon, skip it. If eof, we'd still be at EOF
@@ -178,14 +178,59 @@ pub const Parser = struct {
         var program = ast.Program.init(self.alloc);
 
         while (!self.matchCurrentTokenType(tok.TokenType.EOF)) {
-            const stmt = self.parseStatement() catch |err| {
-                switch (err) {
-                    error.OutOfMemory => |oom| return oom,
-                    error.UnexpectedToken => {
-                        self.synchronizeParser();
-                        continue;
-                    },
-                }
+            const stmt = blk: {
+                const maybe_stmt = self.parseStatement() catch |err| {
+                    switch (err) {
+                        error.OutOfMemory => |oom| return oom,
+                        error.UnexpectedToken => {
+                            self.synchronizeParser();
+                            continue;
+                        },
+                    }
+                };
+
+                break :blk maybe_stmt orelse {
+                    const token = self.currentToken();
+                    const expression = self.parseExpression(Precedence.LOWEST) catch |err| {
+                        switch (err) {
+                            error.OutOfMemory => |oom| return oom,
+                            error.UnexpectedToken => {
+                                self.synchronizeParser();
+                                continue;
+                            },
+                        }
+                    };
+
+                    const heap_expression = try self.alloc.create(ast.AstNode);
+                    heap_expression.* = expression;
+                    switch (heap_expression.*) {
+                        .If => break :blk ast.AstNode{
+                            .ExpressionStatement = ast.ExpressionStatement{
+                                .token = token,
+                                .expression = heap_expression,
+                                .discarded = false,
+                            },
+                        },
+                        else => {
+                            self.matchNextAndAdvance(tok.TokenType.SEMICOLON) catch |err| {
+                                switch (err) {
+                                    error.OutOfMemory => |oom| return oom,
+                                    error.UnexpectedToken => {
+                                        self.synchronizeParser();
+                                        continue;
+                                    },
+                                }
+                            };
+                            break :blk ast.AstNode{
+                                .ExpressionStatement = ast.ExpressionStatement{
+                                    .token = token,
+                                    .expression = heap_expression,
+                                    .discarded = true,
+                                },
+                            };
+                        },
+                    }
+                };
             };
 
             try program.addStatement(stmt);
@@ -197,21 +242,21 @@ pub const Parser = struct {
         };
     }
 
-    fn parseStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!ast.AstNode {
+    fn parseStatement(self: *Parser) error{ OutOfMemory, UnexpectedToken }!?ast.AstNode {
         const node = switch (self.currentToken().token_type) {
-            tok.TokenType.LET => self.parseLetStatement(),
-            tok.TokenType.FUNCTION => self.parseFunctionDeclaration(),
-            tok.TokenType.RETURN => self.parseReturnStatement(),
-            tok.TokenType.WHILE => self.parseWhileLoopStatement(),
+            tok.TokenType.LET => try self.parseLetStatement(),
+            tok.TokenType.FUNCTION => try self.parseFunctionDeclaration(),
+            tok.TokenType.RETURN => try self.parseReturnStatement(),
+            tok.TokenType.WHILE => try self.parseWhileLoopStatement(),
             tok.TokenType.IDENT => blk: {
                 if (self.matchPeekTokenType(tok.TokenType.EQUAL)) {
-                    break :blk self.parseAssignmentStatement();
+                    break :blk try self.parseAssignmentStatement();
                 } else {
-                    break :blk self.parseExpressionStatement();
+                    break :blk null; //we're looking at an expression and need to handle it differently
                 }
             },
-            tok.TokenType.PRINT => self.parsePrintCallStatement(),
-            else => self.parseExpressionStatement(),
+            tok.TokenType.PRINT => try self.parsePrintCallStatement(),
+            else => null, //we're looking at an expression and need to handle it differently
         };
 
         return node;
@@ -273,9 +318,7 @@ pub const Parser = struct {
         const heap_return_expression = try self.alloc.create(ast.AstNode);
         heap_return_expression.* = return_expression;
 
-        if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
-            self.advance();
-        }
+        try self.matchNextAndAdvance(tok.TokenType.SEMICOLON);
 
         return ast.AstNode{ .ReturnStatement = ast.ReturnStatement{
             .token = return_token,
@@ -289,14 +332,13 @@ pub const Parser = struct {
         const heap_expression = try self.alloc.create(ast.AstNode);
         heap_expression.* = expression;
 
-        if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
-            self.advance();
-        }
+        try self.matchNextAndAdvance(tok.TokenType.SEMICOLON);
 
         return ast.AstNode{
             .ExpressionStatement = ast.ExpressionStatement{
                 .token = token,
                 .expression = heap_expression,
+                .discarded = true,
             },
         };
     }
@@ -498,7 +540,7 @@ pub const Parser = struct {
 
         while (!self.matchCurrentTokenType(tok.TokenType.RBRACE) and !self.matchCurrentTokenType(tok.TokenType.EOF)) {
             // FIXME: should record an error and skip to the next statement
-            const statement = self.parseStatement() catch |err| {
+            const maybe_statement = self.parseStatement() catch |err| {
                 switch (err) {
                     error.OutOfMemory => |oom| return oom,
                     error.UnexpectedToken => {
@@ -507,9 +549,51 @@ pub const Parser = struct {
                     },
                 }
             };
-            try block_statements.addStatement(statement);
-            // we're looking at the last token after each parselet, so skipping it
-            self.advance();
+
+            if (maybe_statement) |statement| {
+                try block_statements.addStatement(statement);
+                // we're looking at the last token after each parselet, so skipping it
+                self.advance();
+            } else {
+                // try parsing an expression first
+                const token = self.currentToken();
+                std.debug.print("Token: {any}\n", .{token});
+                const expression = self.parseExpression(Precedence.LOWEST) catch |err| {
+                    switch (err) {
+                        error.OutOfMemory => |oom| return oom,
+                        error.UnexpectedToken => {
+                            self.synchronizeParser();
+                            continue;
+                        },
+                    }
+                };
+                std.debug.print("Through expression!!!!!!\n", .{});
+
+                const heap_expression = try self.alloc.create(ast.AstNode);
+                heap_expression.* = expression;
+                if (self.matchPeekTokenType(tok.TokenType.SEMICOLON)) {
+                    self.advance();
+                    // skip the semicolon too
+                    self.advance();
+
+                    try block_statements.addStatement(ast.AstNode{
+                        .ExpressionStatement = ast.ExpressionStatement{
+                            .token = token,
+                            .expression = heap_expression,
+                            .discarded = true,
+                        },
+                    });
+                } else {
+                    try self.matchNextAndAdvance(tok.TokenType.RBRACE); //TODO: the error message here might be weird
+                    try block_statements.addStatement(ast.AstNode{
+                        .ExpressionStatement = ast.ExpressionStatement{
+                            .token = token,
+                            .expression = heap_expression,
+                            .discarded = false,
+                        },
+                    });
+                }
+            }
         }
 
         return ast.AstNode{
@@ -849,22 +933,22 @@ test "Test parse let statement" {
     };
     const tests = [_]TestCase{
         .{
-            .input = "let x: int = 5",
+            .input = "let x: int = 5;",
             .expected_identifier = "x",
             .expected_value = Value{ .integer = 5 },
         },
         .{
-            .input = "let y = 10",
+            .input = "let y = 10;",
             .expected_identifier = "y",
             .expected_value = Value{ .integer = 10 },
         },
         .{
-            .input = "let foobar = y",
+            .input = "let foobar = y;",
             .expected_identifier = "foobar",
             .expected_value = Value{ .string = "y" },
         },
         .{
-            .input = "let barbaz: string = \"str\"",
+            .input = "let barbaz: string = \"str\";",
             .expected_identifier = "barbaz",
             .expected_value = Value{ .string = "str" },
         },
@@ -920,7 +1004,7 @@ test "Test parse identifier" {
 }
 
 test "Test parse string literals" {
-    const input = "\"Hello world!\"";
+    const input = "\"Hello world!\";";
     const expected: []const u8 = "Hello world!";
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -952,7 +1036,7 @@ test "Parse numeric expressions" {
     };
     const tests = [_]TestCase{
         .{ .input = "5;", .expected = Value{ .integer = 5 } },
-        .{ .input = "134.965", .expected = Value{ .float = 134.965 } },
+        .{ .input = "134.965;", .expected = Value{ .float = 134.965 } },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -988,10 +1072,10 @@ test "Parse prefix expressions" {
         value: Value,
     };
     const tests = [_]TestCase{
-        .{ .input = "!5", .operator = ast.UnaryOp.Negation, .value = Value{ .integer = 5 } },
-        .{ .input = "-10", .operator = ast.UnaryOp.Minus, .value = Value{ .integer = 10 } },
-        .{ .input = "!true", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = true } },
-        .{ .input = "!false", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = false } },
+        .{ .input = "!5;", .operator = ast.UnaryOp.Negation, .value = Value{ .integer = 5 } },
+        .{ .input = "-10;", .operator = ast.UnaryOp.Minus, .value = Value{ .integer = 10 } },
+        .{ .input = "!true;", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = true } },
+        .{ .input = "!false;", .operator = ast.UnaryOp.Negation, .value = Value{ .boolean = false } },
     };
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1104,7 +1188,7 @@ test "Parse if expressions" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input = "if x<y { x }";
+    const input = "if x<y { x; }";
     const left_exp: []const u8 = "x";
     const right_exp: []const u8 = "y";
 
@@ -1203,7 +1287,7 @@ test "Parse array literals" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input = "[1, 2 * 2, 3 + 3]";
+    const input = "[1, 2 * 2, 3 + 3];";
 
     var diagnostics = diag.Diagnostics.init(allocator);
     var lexer = lex.Lexer.init(input, &diagnostics, allocator);
@@ -1225,7 +1309,7 @@ test "Parse function call" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input = "add(1, 2 * 3, 4 + 5)";
+    const input = "add(1, 2 * 3, 4 + 5);";
 
     var diagnostics = diag.Diagnostics.init(allocator);
     var lexer = lex.Lexer.init(input, &diagnostics, allocator);
@@ -1251,7 +1335,7 @@ test "Parse index expression" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input = "myArray[1 + 1]";
+    const input = "myArray[1 + 1];";
 
     var diagnostics = diag.Diagnostics.init(allocator);
     var lexer = lex.Lexer.init(input, &diagnostics, allocator);
@@ -1419,4 +1503,27 @@ test "Parse call print builtin" {
     try std.testing.expectEqual(1, program.Program.program.items.len);
     const infix = &program.Program.program.items[0].BuiltInCall.argument.Infix;
     try TestHelpers.test_infix_expression(infix, 3, 4, ast.BinaryOp.Plus);
+}
+
+test "Parse broken example" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\fn main() -> int {
+        \\ if (1 < 2) {
+        \\  print(666);
+        \\}
+    ;
+
+    var diagnostics = diag.Diagnostics.init(allocator);
+    var lexer = lex.Lexer.init(input, &diagnostics, allocator);
+    var lexed_tokens = try TestHelpers.lex_tokens(&lexer, allocator);
+    const slice_tokens = try lexed_tokens.toOwnedSlice();
+
+    var parser = try Parser.init(slice_tokens, &diagnostics, allocator);
+
+    _ = try parser.parse();
+    try diagnostics.showAndFail();
 }
