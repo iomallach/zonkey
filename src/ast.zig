@@ -152,6 +152,7 @@ const AstNodeKind = enum {
     AssignmentStatement,
     // Expressions
     Identifier,
+    UnitLiteral,
     IntegerLiteral,
     FloatLiteral,
     BooleanLiteral,
@@ -178,6 +179,7 @@ pub const AstNode = union(AstNodeKind) {
     AssignmentStatement: AssignmentStatement,
     // Expressions
     Identifier: Identifier,
+    UnitLiteral: UnitLiteral,
     IntegerLiteral: IntegerLiteral,
     FloatLiteral: FloatLiteral,
     BooleanLiteral: BooleanLiteral,
@@ -325,6 +327,10 @@ pub const Identifier = struct {
     pub fn getToken(self: *const Identifier) *const tok.Token {
         return &self.token;
     }
+};
+
+pub const UnitLiteral = struct {
+    token: tok.Token,
 };
 
 pub const IntegerLiteral = struct {

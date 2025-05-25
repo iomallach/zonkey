@@ -30,13 +30,20 @@ pub const ReturnResolver = struct {
                                     .token = es.token,
                                 } };
                             } else {
-                                //     fl.body.BlockStatement.statements.append(
-                                //     ast.AstNode{
-                                //         .ReturnStatement = ast.ReturnStatement{
-                                //             .return_value =
-                                //         }
-                                //     }
-                                // )
+                                const heap_node = try self.allocator.create(ast.AstNode);
+                                heap_node.* = ast.AstNode{
+                                    .UnitLiteral = ast.UnitLiteral{
+                                        .token = es.getToken(),
+                                    },
+                                };
+                                fl.body.BlockStatement.statements.append(
+                                    ast.AstNode{
+                                        .ReturnStatement = ast.ReturnStatement{
+                                            .return_value = heap_node,
+                                        },
+                                        .token = es.getToken(),
+                                    },
+                                );
                             }
                         },
                         else => {},
