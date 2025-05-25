@@ -189,45 +189,12 @@ pub const Parser = struct {
                     }
                 };
 
-                break :blk maybe_stmt orelse {
-                    const token = self.currentToken();
-                    const expression = self.parseExpression(Precedence.LOWEST) catch |err| {
-                        switch (err) {
-                            error.OutOfMemory => |oom| return oom,
-                            error.UnexpectedToken => {
-                                self.synchronizeParser();
-                                continue;
-                            },
-                        }
-                    };
-
-                    const heap_expression = try self.alloc.create(ast.AstNode);
-                    heap_expression.* = expression;
-                    switch (heap_expression.*) {
-                        .If => break :blk ast.AstNode{
-                            .ExpressionStatement = ast.ExpressionStatement{
-                                .token = token,
-                                .expression = heap_expression,
-                                .discarded = false,
-                            },
-                        },
-                        else => {
-                            self.matchNextAndAdvance(tok.TokenType.SEMICOLON) catch |err| {
-                                switch (err) {
-                                    error.OutOfMemory => |oom| return oom,
-                                    error.UnexpectedToken => {
-                                        self.synchronizeParser();
-                                        continue;
-                                    },
-                                }
-                            };
-                            break :blk ast.AstNode{
-                                .ExpressionStatement = ast.ExpressionStatement{
-                                    .token = token,
-                                    .expression = heap_expression,
-                                    .discarded = true,
-                                },
-                            };
+                break :blk maybe_stmt orelse self.parseExpressionStatement() catch |err| {
+                    switch (err) {
+                        error.OutOfMemory => |oom| return oom,
+                        error.UnexpectedToken => {
+                            self.synchronizeParser();
+                            continue;
                         },
                     }
                 };
